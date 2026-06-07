@@ -4,9 +4,9 @@
 
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Daaru Wala — Operations Dashboard</title>
-<script src="./Daaru Wala — Operations Dashboard_files/xlsx.full.min.js.download"></script>
-<script src="./Daaru Wala — Operations Dashboard_files/chart.umd.min.js.download"></script>
-<link href="./Daaru Wala — Operations Dashboard_files/css2" rel="stylesheet">
+<script src="./index_files/xlsx.full.min.js.download"></script>
+<script src="./index_files/chart.umd.min.js.download"></script>
+<link href="./index_files/css2" rel="stylesheet">
 <style>
 :root{
   --bg:#0a0e1a;--sf:#121826;--sf2:#1a2233;--sf3:#222d42;
@@ -218,10 +218,10 @@ button{font-family:inherit;}
 <body>
 
 <!-- LOADING -->
-<div class="loading" id="loading"><div style="text-align:center"><div class="spinner"></div><div class="load-txt" id="loadTxt">Loading from cloud...</div></div></div>
+<div class="loading" id="loading"><div style="text-align:center"><div class="spinner"></div><div class="load-txt" id="loadTxt">Loading...</div></div></div>
 
 <!-- LOGIN -->
-<div id="loginScreen" style="display: none;">
+<div id="loginScreen">
   <div class="login-bg"></div>
   <div class="login-grid"></div>
   <div class="particle" style="width:6px;height:6px;background:rgba(255,140,26,.4);top:18%;left:14%;--dur:9s;--delay:0s"></div>
@@ -245,23 +245,24 @@ button{font-family:inherit;}
 </div>
 
 <!-- APP -->
-<div id="appShell" style="display: block;">
+<div id="appShell">
   <!-- NAV -->
   <div class="topnav">
     <div class="nav-brand"><div class="icon">🍺</div><h1>DAARU WALA</h1></div>
     <div class="nav-tabs">
-      <button class="nav-tab" onclick="showPage(&#39;summary&#39;,this)" data-testid="nav-summary"><span>📊 Summary</span></button>
+      <button class="nav-tab active" onclick="showPage(&#39;summary&#39;,this)" data-testid="nav-summary"><span>📊 Summary</span></button>
       <button class="nav-tab" onclick="showPage(&#39;outlets&#39;,this)" data-testid="nav-outlets"><span>🏪 Outlets</span></button>
       <button class="nav-tab" onclick="showPage(&#39;items&#39;,this)" data-testid="nav-items"><span>🏆 Items</span></button>
       <button class="nav-tab" onclick="showPage(&#39;categories&#39;,this)" data-testid="nav-categories"><span>🍱 Categories</span></button>
       <button class="nav-tab" onclick="showPage(&#39;compare&#39;,this)" data-testid="nav-compare"><span>📅 Compare</span></button>
       <button class="nav-tab" onclick="showPage(&#39;expenses&#39;,this)" data-testid="nav-expenses"><span>💸 Expenses</span></button>
+      <button class="nav-tab" onclick="showPage(&#39;pl&#39;,this)" data-testid="nav-pl"><span>💹 P&amp;L</span></button>
       <button class="nav-tab" onclick="showPage(&#39;inventory&#39;,this)" data-testid="nav-inventory"><span>📦 Inventory</span></button>
-      <button class="nav-tab active" id="upTab" onclick="showPage(&#39;upload&#39;,this)" style="display: flex;" data-testid="nav-upload"><span>⬆️ Upload</span></button>
+      <button class="nav-tab" id="upTab" onclick="showPage(&#39;upload&#39;,this)" style="display:none" data-testid="nav-upload"><span>⬆️ Upload</span></button>
     </div>
     <div class="nav-right">
-      <span class="user-name" id="userName">Admin</span>
-      <span class="role-pill admin" id="rolePill">admin</span>
+      <span class="user-name" id="userName">—</span>
+      <span class="role-pill" id="rolePill"></span>
       <button class="logout-btn" onclick="logout()" data-testid="logout-btn">Sign Out</button>
     </div>
   </div>
@@ -275,101 +276,60 @@ button{font-family:inherit;}
     <span style="font-size:11px;color:var(--mu);">→</span>
     <input type="date" class="date-inp" id="dateTo" onchange="applyCustomRange()">
     <button class="clear-btn" onclick="clearFilter()" data-testid="clear-filter-btn">✕ All Data</button>
-    <span class="filter-info" id="filterInfo">Showing all data</span>
+    <span class="filter-info" id="filterInfo"></span>
   </div>
 
   <!-- SUMMARY -->
-  <div class="page" id="page-summary">
-    <div class="kpi-row" id="sumKpis">
-    <div class="kpi au" style="--clr:#ff8c1a"><div class="kpi-lbl">Total Revenue</div><div class="kpi-val">₹0</div><div class="kpi-sub">₹0</div></div>
-    <div class="kpi au1" style="--clr:#1ec9b0"><div class="kpi-lbl">Total Orders</div><div class="kpi-val">0</div><div class="kpi-sub">unique invoices</div></div>
-    <div class="kpi au2" style="--clr:#7c5cf5"><div class="kpi-lbl">Avg Order Value</div><div class="kpi-val">₹0</div><div class="kpi-sub">per invoice</div></div>
-    <div class="kpi au3" style="--clr:#ff4d8d"><div class="kpi-lbl">Items Sold</div><div class="kpi-val">0</div><div class="kpi-sub">total quantity</div></div>
-  </div>
+  <div class="page active" id="page-summary">
+    <div class="kpi-row" id="sumKpis"></div>
     <div class="grid-2">
-      <div class="card au"><div class="card-h"><span class="card-t">📈 Revenue by Outlet</span><span class="card-b" id="revBadge">0 active</span></div><div class="bars" id="outletBars">
-    <div class="bar-row">
-      <span class="lbl">🍺 Dwarka</span>
-      <div class="bar-trk"><div class="bar-fill" style="--clr:#ff8c1a;width:0.0%"></div></div>
-      <span class="val" style="color:#ff8c1a">₹0</span>
-    </div>
-  
-    <div class="bar-row">
-      <span class="lbl">🍻 Janakpuri</span>
-      <div class="bar-trk"><div class="bar-fill" style="--clr:#1ec9b0;width:0.0%"></div></div>
-      <span class="val" style="color:#1ec9b0">₹0</span>
-    </div>
-  
-    <div class="bar-row">
-      <span class="lbl">🥃 Okhla</span>
-      <div class="bar-trk"><div class="bar-fill" style="--clr:#7c5cf5;width:0.0%"></div></div>
-      <span class="val" style="color:#7c5cf5">₹0</span>
-    </div>
-  
-    <div class="bar-row">
-      <span class="lbl">🍷 Mayur Vihar</span>
-      <div class="bar-trk"><div class="bar-fill" style="--clr:#ff4d8d;width:0.0%"></div></div>
-      <span class="val" style="color:#ff4d8d">₹0</span>
-    </div>
-  
-    <div class="bar-row">
-      <span class="lbl">🥂 Mayapuri</span>
-      <div class="bar-trk"><div class="bar-fill" style="--clr:#2a86ff;width:0.0%"></div></div>
-      <span class="val" style="color:#2a86ff">₹0</span>
-    </div>
-  
-    <div class="bar-row">
-      <span class="lbl">🍾 Paschim Vihar</span>
-      <div class="bar-trk"><div class="bar-fill" style="--clr:#26d782;width:0.0%"></div></div>
-      <span class="val" style="color:#26d782">₹0</span>
-    </div>
-  </div></div>
-      <div class="card au1"><div class="card-h"><span class="card-t">🍩 Sales Mix</span><span class="card-b">All outlets</span></div><div class="donut-wrap"><canvas id="mixDonut" width="160" height="160" style="box-sizing: border-box;"></canvas><div class="donut-leg" id="mixLeg"><div class="empty" style="padding:8px">No data</div></div></div></div>
+      <div class="card au"><div class="card-h"><span class="card-t">📈 Revenue by Outlet</span><span class="card-b" id="revBadge">—</span></div><div class="bars" id="outletBars"></div></div>
+      <div class="card au1"><div class="card-h"><span class="card-t">🍩 Sales Mix</span><span class="card-b">All outlets</span></div><div class="donut-wrap"><canvas id="mixDonut" width="160" height="160"></canvas><div class="donut-leg" id="mixLeg"></div></div></div>
     </div>
     <div class="grid-2">
-      <div class="card au2"><div class="card-h"><span class="card-t">🏆 Top Items</span><span class="card-b">Top 8</span></div><table class="tbl"><thead><tr><th>#</th><th>Item</th><th style="text-align:right">Revenue</th><th style="text-align:right">Qty</th></tr></thead><tbody id="sumItems"><tr><td colspan="4" class="empty">No data</td></tr></tbody></table></div>
-      <div class="card au3"><div class="card-h"><span class="card-t">📂 Top Categories</span><span class="card-b">Combined</span></div><div class="bars" id="sumCats"><div class="empty" style="padding:14px">No data</div></div></div>
+      <div class="card au2"><div class="card-h"><span class="card-t">🏆 Top Items</span><span class="card-b">Top 8</span></div><table class="tbl"><thead><tr><th>#</th><th>Item</th><th style="text-align:right">Revenue</th><th style="text-align:right">Qty</th></tr></thead><tbody id="sumItems"></tbody></table></div>
+      <div class="card au3"><div class="card-h"><span class="card-t">📂 Top Categories</span><span class="card-b">Combined</span></div><div class="bars" id="sumCats"></div></div>
     </div>
-    <div class="card au3"><div class="card-h"><span class="card-t">📈 Daily Revenue Trend</span><span class="card-b" id="trendBadge">0 days</span></div><div class="chart-wrap"><canvas id="dailyChart" height="0" style="box-sizing: border-box; display: block; height: 0px; width: 0px;" width="0"></canvas></div></div>
+    <div class="card au3"><div class="card-h"><span class="card-t">📈 Daily Revenue Trend</span><span class="card-b" id="trendBadge">—</span></div><div class="chart-wrap"><canvas id="dailyChart" height="220"></canvas></div></div>
   </div>
 
   <!-- OUTLETS -->
   <div class="page" id="page-outlets">
     <div class="otabs" id="outletTabs"></div>
-    <div id="outletDetail"><div class="card"><div class="empty"><b>🏪</b>No outlet data. Upload Excel files to see this.</div></div></div>
+    <div id="outletDetail"></div>
   </div>
 
   <!-- ITEMS -->
   <div class="page" id="page-items">
-    <div class="card"><div class="card-h"><span class="card-t">🏆 All Items Performance</span><span class="card-b" id="itemsBadge">0 items</span></div>
-      <div style="overflow-x:auto"><table class="tbl" id="itemsTbl"><thead><tr><th>#</th><th>Item</th><th>Category</th><th style="text-align:right">Revenue</th><th style="text-align:right">Qty</th><th style="text-align:right">Orders</th><th style="text-align:right">Avg ₹</th></tr></thead><tbody><tr><td colspan="7" class="empty">No data</td></tr></tbody></table></div>
+    <div class="card"><div class="card-h"><span class="card-t">🏆 All Items Performance</span><span class="card-b" id="itemsBadge">—</span></div>
+      <div style="overflow-x:auto"><table class="tbl" id="itemsTbl"><thead><tr><th>#</th><th>Item</th><th>Category</th><th style="text-align:right">Revenue</th><th style="text-align:right">Qty</th><th style="text-align:right">Orders</th><th style="text-align:right">Avg ₹</th></tr></thead><tbody></tbody></table></div>
     </div>
   </div>
 
   <!-- CATEGORIES -->
   <div class="page" id="page-categories">
     <div class="grid-2">
-      <div class="card"><div class="card-h"><span class="card-t">🍱 Category Revenue Split</span><span class="card-b">All outlets</span></div><div class="donut-wrap"><canvas id="catDonut" width="180" height="180" style="box-sizing: border-box;"></canvas><div class="donut-leg" id="catLeg"><div class="empty" style="padding:8px">No data</div></div></div></div>
-      <div class="card"><div class="card-h"><span class="card-t">📊 Category Performance</span><span class="card-b" id="catBadge">0 categories</span></div><div class="bars" id="catBars"><div class="empty" style="padding:14px">No data</div></div></div>
+      <div class="card"><div class="card-h"><span class="card-t">🍱 Category Revenue Split</span><span class="card-b">All outlets</span></div><div class="donut-wrap"><canvas id="catDonut" width="180" height="180"></canvas><div class="donut-leg" id="catLeg"></div></div></div>
+      <div class="card"><div class="card-h"><span class="card-t">📊 Category Performance</span><span class="card-b" id="catBadge">—</span></div><div class="bars" id="catBars"></div></div>
     </div>
     <div class="card"><div class="card-h"><span class="card-t">📋 Detailed Breakdown</span><span class="card-b">By outlet</span></div>
-      <div style="overflow-x:auto"><table class="tbl" id="catBreak"><thead><tr><th>Category</th><th style="text-align:right">Revenue</th><th style="text-align:right">Qty</th><th style="text-align:right">Orders</th><th style="text-align:right">% of total</th></tr></thead><tbody><tr><td colspan="5" class="empty">No data</td></tr></tbody></table></div>
+      <div style="overflow-x:auto"><table class="tbl" id="catBreak"><thead><tr><th>Category</th><th style="text-align:right">Revenue</th><th style="text-align:right">Qty</th><th style="text-align:right">Orders</th><th style="text-align:right">% of total</th></tr></thead><tbody></tbody></table></div>
     </div>
   </div>
 
   <!-- COMPARE -->
   <div class="page" id="page-compare">
-    <div class="card"><div class="card-h"><span class="card-t">📅 Month-over-Month</span><span class="card-b" id="momBadge">0 months</span></div><div class="month-cards" id="monthCards"><div class="empty" style="padding:18px"><b>📅</b>Upload multi-month files to compare.</div></div></div>
+    <div class="card"><div class="card-h"><span class="card-t">📅 Month-over-Month</span><span class="card-b" id="momBadge">—</span></div><div class="month-cards" id="monthCards"></div></div>
     <div class="grid-2">
-      <div class="card"><div class="card-h"><span class="card-t">📈 Monthly Revenue</span><span class="card-b">Trend</span></div><div class="chart-wrap"><canvas id="momLine" height="0" style="box-sizing: border-box; display: block; height: 0px; width: 0px;" width="0"></canvas></div></div>
-      <div class="card"><div class="card-h"><span class="card-t">📊 Monthly Orders</span><span class="card-b">Trend</span></div><div class="chart-wrap"><canvas id="momBar" height="0" style="box-sizing: border-box; display: block; height: 0px; width: 0px;" width="0"></canvas></div></div>
+      <div class="card"><div class="card-h"><span class="card-t">📈 Monthly Revenue</span><span class="card-b">Trend</span></div><div class="chart-wrap"><canvas id="momLine" height="220"></canvas></div></div>
+      <div class="card"><div class="card-h"><span class="card-t">📊 Monthly Orders</span><span class="card-b">Trend</span></div><div class="chart-wrap"><canvas id="momBar" height="220"></canvas></div></div>
     </div>
-    <div class="card"><div class="card-h"><span class="card-t">🏪 Outlet × Month Matrix</span><span class="card-b">Revenue</span></div><div style="overflow-x:auto"><table class="tbl" id="omMatrix"><thead></thead><tbody><tr><td class="empty">No data</td></tr></tbody></table></div></div>
+    <div class="card"><div class="card-h"><span class="card-t">🏪 Outlet × Month Matrix</span><span class="card-b">Revenue</span></div><div style="overflow-x:auto"><table class="tbl" id="omMatrix"><thead></thead><tbody></tbody></table></div></div>
   </div>
 
   <!-- EXPENSES -->
   <div class="page" id="page-expenses">
-    <div class="kpi-row" id="expKpis"><div class="empty" style="grid-column:1/-1;padding:30px"><b>💸</b>No expense data. Upload Expense Tracker Excel.</div></div>
+    <div class="kpi-row" id="expKpis"></div>
     <div class="grid-2">
       <div class="card"><div class="card-h"><span class="card-t">💸 Expense by Category</span><span class="card-b" id="expBadge">—</span></div><div class="bars" id="expBars"></div></div>
       <div class="card"><div class="card-h"><span class="card-t">📈 Monthly Expense Trend</span><span class="card-b">All categories</span></div><div class="chart-wrap"><canvas id="expChart" height="220"></canvas></div></div>
@@ -377,18 +337,36 @@ button{font-family:inherit;}
     <div class="card"><div class="card-h"><span class="card-t">📋 Daily Expense Log</span><span class="card-b" id="expRowsBadge">—</span></div><div style="overflow-x:auto;max-height:500px"><table class="tbl" id="expTbl"><thead><tr><th>Date</th><th style="text-align:right">Sale</th><th style="text-align:right">Veg</th><th style="text-align:right">Dairy</th><th style="text-align:right">Non-Veg</th><th style="text-align:right">Grocery</th><th style="text-align:right">Liquor</th><th style="text-align:right">Misc</th><th style="text-align:right">Total</th></tr></thead><tbody></tbody></table></div></div>
   </div>
 
+  <!-- P&L -->
+  <div class="page" id="page-pl">
+    <div class="kpi-row" id="plKpis"></div>
+    <div class="grid-2">
+      <div class="card"><div class="card-h"><span class="card-t">📈 Revenue vs Expenses</span><span class="card-b">Auto · Monthly</span></div><div class="chart-wrap"><canvas id="plChart" height="240"></canvas></div></div>
+      <div class="card"><div class="card-h"><span class="card-t">💰 Gross Profit Trend</span><span class="card-b">Auto · Monthly</span></div><div class="chart-wrap"><canvas id="plGpChart" height="240"></canvas></div></div>
+    </div>
+    <div class="card"><div class="card-h"><span class="card-t">📋 Auto-computed P&amp;L (Sales − Expenses)</span><span class="card-b" id="plMonthsBadge">—</span></div>
+      <div style="overflow-x:auto"><table class="tbl" id="plTbl"><thead></thead><tbody></tbody></table></div>
+    </div>
+    <div class="card"><div class="card-h"><span class="card-t">📤 Uploaded P&amp;L (Full Statement)</span><span class="card-b">Per outlet</span></div>
+      <div id="uploadedPLWrap"></div>
+    </div>
+  </div>
+
   <!-- INVENTORY -->
   <div class="page" id="page-inventory">
-    <div class="otabs" id="invOutletTabs"></div>
+    <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:10px;">
+      <div class="otabs" id="invOutletTabs"></div>
+      <button id="addStockBtn" onclick="openStockModal()" style="display:none;background:linear-gradient(135deg,var(--a),var(--a2));color:#000;border:none;padding:9px 16px;border-radius:9px;font-family:inherit;font-size:12px;font-weight:800;cursor:pointer;letter-spacing:.8px;text-transform:uppercase;" data-testid="open-stock-modal">➕ Receive / Add Stock</button>
+    </div>
     <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;">
       <span class="filter-label">Category:</span>
-      <button class="otab active" onclick="setInvCat(&#39;ALL&#39;,this)" data-testid="inv-cat-all" data-cat="ALL">All</button>
-      <button class="otab" onclick="setInvCat(&#39;WHISKY&#39;,this)" data-testid="inv-cat-whisky" data-cat="WHISKY">🥃 Whisky</button>
-      <button class="otab" onclick="setInvCat(&#39;VODKA&#39;,this)" data-testid="inv-cat-vodka" data-cat="VODKA">🍸 Vodka</button>
-      <button class="otab" onclick="setInvCat(&#39;RUM&#39;,this)" data-testid="inv-cat-rum" data-cat="RUM">🍹 Rum</button>
-      <button class="otab" onclick="setInvCat(&#39;BEER&#39;,this)" data-testid="inv-cat-beer" data-cat="BEER">🍺 Beer</button>
+      <button class="otab active" onclick="setInvCat(&#39;ALL&#39;,this)" data-testid="inv-cat-all">All</button>
+      <button class="otab" onclick="setInvCat(&#39;WHISKY&#39;,this)" data-testid="inv-cat-whisky">🥃 Whisky</button>
+      <button class="otab" onclick="setInvCat(&#39;VODKA&#39;,this)" data-testid="inv-cat-vodka">🍸 Vodka</button>
+      <button class="otab" onclick="setInvCat(&#39;RUM&#39;,this)" data-testid="inv-cat-rum">🍹 Rum</button>
+      <button class="otab" onclick="setInvCat(&#39;BEER&#39;,this)" data-testid="inv-cat-beer">🍺 Beer</button>
     </div>
-    <div class="kpi-row" id="invKpis"><div class="empty" style="grid-column:1/-1;padding:30px"><b>📦</b>No inventory data. Go to Upload tab and drop DSR Excel files per outlet.</div></div>
+    <div class="kpi-row" id="invKpis"></div>
     <div class="grid-2">
       <div class="card"><div class="card-h"><span class="card-t">🚨 Reorder Alerts</span><span class="card-b" id="invAlertBadge">—</span></div>
         <div style="overflow-x:auto;max-height:420px"><table class="tbl" id="invAlertsTbl"><thead><tr><th>Brand</th><th>Size</th><th style="text-align:right">Balance</th><th style="text-align:right">Avg/day</th><th style="text-align:right">Days Left</th><th>Status</th></tr></thead><tbody></tbody></table></div>
@@ -401,7 +379,7 @@ button{font-family:inherit;}
   </div>
 
   <!-- UPLOAD -->
-  <div class="page active" id="page-upload">
+  <div class="page" id="page-upload">
     <div class="up-hdr">
       <div>
         <h2>⬆️ Upload Files</h2>
@@ -409,65 +387,17 @@ button{font-family:inherit;}
       </div>
       <button class="build-btn" id="buildBtn" onclick="buildAll()" data-testid="build-dashboard-btn">🚀 SAVE &amp; BUILD</button>
     </div>
-    <div class="slots-grid" id="outletSlots">
-    <label class="slot" id="slot-dwarka" for="inp-dwarka" data-testid="slot-dwarka" style="">
-      <button class="slot-x" id="rx-dwarka" style="display: none;" onclick="event.preventDefault();event.stopPropagation();removeOutlet(&#39;dwarka&#39;)" data-testid="remove-dwarka">✕</button>
-      <span class="slot-emoji" id="ico-dwarka">🍺</span>
-      <div class="slot-name">Dwarka</div>
-      <div class="slot-sub" id="sub-dwarka">Click or drop — any month(s)</div>
-      <div class="slot-info" id="inf-dwarka" style="color:#ff8c1a"></div>
-      <input type="file" id="inp-dwarka" accept=".xlsx,.xls" multiple="" style="display:none" onchange="handleSlot(&#39;dwarka&#39;,this)" data-testid="input-dwarka">
-    </label>
-  
-    <label class="slot" id="slot-janakpuri" for="inp-janakpuri" data-testid="slot-janakpuri">
-      <button class="slot-x" id="rx-janakpuri" style="display:none" onclick="event.preventDefault();event.stopPropagation();removeOutlet(&#39;janakpuri&#39;)" data-testid="remove-janakpuri">✕</button>
-      <span class="slot-emoji" id="ico-janakpuri">🍻</span>
-      <div class="slot-name">Janakpuri</div>
-      <div class="slot-sub" id="sub-janakpuri">Click or drop — any month(s)</div>
-      <div class="slot-info" id="inf-janakpuri" style="color:#1ec9b0"></div>
-      <input type="file" id="inp-janakpuri" accept=".xlsx,.xls" multiple="" style="display:none" onchange="handleSlot(&#39;janakpuri&#39;,this)" data-testid="input-janakpuri">
-    </label>
-  
-    <label class="slot" id="slot-okhla" for="inp-okhla" data-testid="slot-okhla">
-      <button class="slot-x" id="rx-okhla" style="display:none" onclick="event.preventDefault();event.stopPropagation();removeOutlet(&#39;okhla&#39;)" data-testid="remove-okhla">✕</button>
-      <span class="slot-emoji" id="ico-okhla">🥃</span>
-      <div class="slot-name">Okhla</div>
-      <div class="slot-sub" id="sub-okhla">Click or drop — any month(s)</div>
-      <div class="slot-info" id="inf-okhla" style="color:#7c5cf5"></div>
-      <input type="file" id="inp-okhla" accept=".xlsx,.xls" multiple="" style="display:none" onchange="handleSlot(&#39;okhla&#39;,this)" data-testid="input-okhla">
-    </label>
-  
-    <label class="slot" id="slot-mayurvihar" for="inp-mayurvihar" data-testid="slot-mayurvihar">
-      <button class="slot-x" id="rx-mayurvihar" style="display:none" onclick="event.preventDefault();event.stopPropagation();removeOutlet(&#39;mayurvihar&#39;)" data-testid="remove-mayurvihar">✕</button>
-      <span class="slot-emoji" id="ico-mayurvihar">🍷</span>
-      <div class="slot-name">Mayur Vihar</div>
-      <div class="slot-sub" id="sub-mayurvihar">Click or drop — any month(s)</div>
-      <div class="slot-info" id="inf-mayurvihar" style="color:#ff4d8d"></div>
-      <input type="file" id="inp-mayurvihar" accept=".xlsx,.xls" multiple="" style="display:none" onchange="handleSlot(&#39;mayurvihar&#39;,this)" data-testid="input-mayurvihar">
-    </label>
-  
-    <label class="slot" id="slot-mayapuri" for="inp-mayapuri" data-testid="slot-mayapuri">
-      <button class="slot-x" id="rx-mayapuri" style="display:none" onclick="event.preventDefault();event.stopPropagation();removeOutlet(&#39;mayapuri&#39;)" data-testid="remove-mayapuri">✕</button>
-      <span class="slot-emoji" id="ico-mayapuri">🥂</span>
-      <div class="slot-name">Mayapuri</div>
-      <div class="slot-sub" id="sub-mayapuri">Click or drop — any month(s)</div>
-      <div class="slot-info" id="inf-mayapuri" style="color:#2a86ff"></div>
-      <input type="file" id="inp-mayapuri" accept=".xlsx,.xls" multiple="" style="display:none" onchange="handleSlot(&#39;mayapuri&#39;,this)" data-testid="input-mayapuri">
-    </label>
-  
-    <label class="slot" id="slot-paschimvihar" for="inp-paschimvihar" data-testid="slot-paschimvihar">
-      <button class="slot-x" id="rx-paschimvihar" style="display:none" onclick="event.preventDefault();event.stopPropagation();removeOutlet(&#39;paschimvihar&#39;)" data-testid="remove-paschimvihar">✕</button>
-      <span class="slot-emoji" id="ico-paschimvihar">🍾</span>
-      <div class="slot-name">Paschim Vihar</div>
-      <div class="slot-sub" id="sub-paschimvihar">Click or drop — any month(s)</div>
-      <div class="slot-info" id="inf-paschimvihar" style="color:#26d782"></div>
-      <input type="file" id="inp-paschimvihar" accept=".xlsx,.xls" multiple="" style="display:none" onchange="handleSlot(&#39;paschimvihar&#39;,this)" data-testid="input-paschimvihar">
-    </label>
-  </div>
+    <div class="slots-grid" id="outletSlots"></div>
     <label class="fslot" id="expSlot" for="expInp">
       <div class="fslot-icon">💸</div>
       <div><h3>Expense Tracker</h3><p id="expTxt">EXPENSE_SHEET.xlsx — any outlet, any month</p></div>
       <input type="file" id="expInp" accept=".xlsx,.xls" style="display:none" onchange="loadExpense(this)">
+    </label>
+
+    <label class="fslot" id="plSlot" for="plInp" style="border-color:rgba(38,215,130,.25);">
+      <div class="fslot-icon">💹</div>
+      <div><h3>Profit &amp; Loss Statement</h3><p id="plTxt">P&amp;L.xlsx — multi-outlet workbook (one sheet per outlet)</p></div>
+      <input type="file" id="plInp" accept=".xlsx,.xls" style="display:none" onchange="loadPLFile(this)">
     </label>
 
     <div style="margin-top:8px;display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:10px;">
@@ -476,61 +406,7 @@ button{font-family:inherit;}
         <p style="font-size:11px;color:var(--mu2);margin-top:2px;">Upload DSR / Bar Sale Report Excel per outlet — supports multiple months</p>
       </div>
     </div>
-    <div class="slots-grid" id="invSlots">
-    <label class="slot" id="invSlot-dwarka" for="invInp-dwarka" data-testid="invslot-dwarka" style="">
-      <button class="slot-x" id="invRx-dwarka" style="display: none;" onclick="event.preventDefault();event.stopPropagation();removeInvOutlet(&#39;dwarka&#39;)" data-testid="inv-remove-dwarka">✕</button>
-      <span class="slot-emoji" id="invIco-dwarka">📦</span>
-      <div class="slot-name">Dwarka</div>
-      <div class="slot-sub" id="invSub-dwarka">Drop DSR Excel — any month(s)</div>
-      <div class="slot-info" id="invInf-dwarka" style="color:#ff8c1a"></div>
-      <input type="file" id="invInp-dwarka" accept=".xlsx,.xls" multiple="" style="display:none" onchange="handleInvSlot(&#39;dwarka&#39;,this)">
-    </label>
-  
-    <label class="slot" id="invSlot-janakpuri" for="invInp-janakpuri" data-testid="invslot-janakpuri">
-      <button class="slot-x" id="invRx-janakpuri" style="display:none" onclick="event.preventDefault();event.stopPropagation();removeInvOutlet(&#39;janakpuri&#39;)" data-testid="inv-remove-janakpuri">✕</button>
-      <span class="slot-emoji" id="invIco-janakpuri">📦</span>
-      <div class="slot-name">Janakpuri</div>
-      <div class="slot-sub" id="invSub-janakpuri">Drop DSR Excel — any month(s)</div>
-      <div class="slot-info" id="invInf-janakpuri" style="color:#1ec9b0"></div>
-      <input type="file" id="invInp-janakpuri" accept=".xlsx,.xls" multiple="" style="display:none" onchange="handleInvSlot(&#39;janakpuri&#39;,this)">
-    </label>
-  
-    <label class="slot" id="invSlot-okhla" for="invInp-okhla" data-testid="invslot-okhla">
-      <button class="slot-x" id="invRx-okhla" style="display:none" onclick="event.preventDefault();event.stopPropagation();removeInvOutlet(&#39;okhla&#39;)" data-testid="inv-remove-okhla">✕</button>
-      <span class="slot-emoji" id="invIco-okhla">📦</span>
-      <div class="slot-name">Okhla</div>
-      <div class="slot-sub" id="invSub-okhla">Drop DSR Excel — any month(s)</div>
-      <div class="slot-info" id="invInf-okhla" style="color:#7c5cf5"></div>
-      <input type="file" id="invInp-okhla" accept=".xlsx,.xls" multiple="" style="display:none" onchange="handleInvSlot(&#39;okhla&#39;,this)">
-    </label>
-  
-    <label class="slot" id="invSlot-mayurvihar" for="invInp-mayurvihar" data-testid="invslot-mayurvihar">
-      <button class="slot-x" id="invRx-mayurvihar" style="display:none" onclick="event.preventDefault();event.stopPropagation();removeInvOutlet(&#39;mayurvihar&#39;)" data-testid="inv-remove-mayurvihar">✕</button>
-      <span class="slot-emoji" id="invIco-mayurvihar">📦</span>
-      <div class="slot-name">Mayur Vihar</div>
-      <div class="slot-sub" id="invSub-mayurvihar">Drop DSR Excel — any month(s)</div>
-      <div class="slot-info" id="invInf-mayurvihar" style="color:#ff4d8d"></div>
-      <input type="file" id="invInp-mayurvihar" accept=".xlsx,.xls" multiple="" style="display:none" onchange="handleInvSlot(&#39;mayurvihar&#39;,this)">
-    </label>
-  
-    <label class="slot" id="invSlot-mayapuri" for="invInp-mayapuri" data-testid="invslot-mayapuri">
-      <button class="slot-x" id="invRx-mayapuri" style="display:none" onclick="event.preventDefault();event.stopPropagation();removeInvOutlet(&#39;mayapuri&#39;)" data-testid="inv-remove-mayapuri">✕</button>
-      <span class="slot-emoji" id="invIco-mayapuri">📦</span>
-      <div class="slot-name">Mayapuri</div>
-      <div class="slot-sub" id="invSub-mayapuri">Drop DSR Excel — any month(s)</div>
-      <div class="slot-info" id="invInf-mayapuri" style="color:#2a86ff"></div>
-      <input type="file" id="invInp-mayapuri" accept=".xlsx,.xls" multiple="" style="display:none" onchange="handleInvSlot(&#39;mayapuri&#39;,this)">
-    </label>
-  
-    <label class="slot" id="invSlot-paschimvihar" for="invInp-paschimvihar" data-testid="invslot-paschimvihar">
-      <button class="slot-x" id="invRx-paschimvihar" style="display:none" onclick="event.preventDefault();event.stopPropagation();removeInvOutlet(&#39;paschimvihar&#39;)" data-testid="inv-remove-paschimvihar">✕</button>
-      <span class="slot-emoji" id="invIco-paschimvihar">📦</span>
-      <div class="slot-name">Paschim Vihar</div>
-      <div class="slot-sub" id="invSub-paschimvihar">Drop DSR Excel — any month(s)</div>
-      <div class="slot-info" id="invInf-paschimvihar" style="color:#26d782"></div>
-      <input type="file" id="invInp-paschimvihar" accept=".xlsx,.xls" multiple="" style="display:none" onchange="handleInvSlot(&#39;paschimvihar&#39;,this)">
-    </label>
-  </div>
+    <div class="slots-grid" id="invSlots"></div>
     <div class="help-box">💡 <b>Tip:</b> Upload 3–4 months per outlet — date filter at top slices any period, <b>Compare tab</b> shows month-over-month. Data auto-saves to cloud.</div>
     <div class="data-mgr">
       <div class="dm-hdr"><h3>🗂️ Loaded Files</h3><button class="clear-all-btn" onclick="clearAllData()" data-testid="clear-all-btn">🗑️ Clear All Data</button></div>
@@ -631,6 +507,7 @@ async function sbLoad(){
       expFileName='(from cloud)';
     }
     await sbLoadInv();
+    await sbLoadPL();
     hideLoad();
     const totRows=Object.values(oData).reduce((s,a)=>s+a.length,0);
     const invCount=Object.values(INV_DSR).reduce((s,o)=>s+Object.values(o).reduce((ss,m)=>ss+m.length,0),0);
@@ -688,6 +565,7 @@ async function sbSave(){
 async function buildAll(){
   await sbSave();
   try{await sbSaveInv();}catch(e){console.error(e);}
+  try{await sbSavePL();}catch(e){console.error(e);}
   refreshAll();
 }
 
@@ -747,6 +625,7 @@ function logout(){
   Object.keys(oData).forEach(k=>delete oData[k]);
   Object.keys(oFiles).forEach(k=>delete oFiles[k]);
   Object.keys(INV_DSR).forEach(k=>delete INV_DSR[k]);
+  Object.keys(PL_UPLOADED).forEach(k=>delete PL_UPLOADED[k]);
   expData=[];expFileName='';
   filterFrom=null;filterTo=null;
   invActiveOutlet='';invActiveCat='ALL';
@@ -906,6 +785,7 @@ function buildSlots(){
   ex.ondragleave=()=>ex.classList.remove('drag-over');
   ex.ondrop=e=>{e.preventDefault();ex.classList.remove('drag-over');if(e.dataTransfer.files[0])loadExpenseFile(e.dataTransfer.files[0]);};
   if(expData.length)refreshExpUI();
+  refreshExpSlotPL();
   updateDmGrid();
   checkReady();
 }
@@ -1156,7 +1036,7 @@ function buildSummary(){
   });
   const topItems=Object.values(itemMap).sort((a,b)=>b.rev-a.rev).slice(0,8);
   document.getElementById('sumItems').innerHTML=topItems.map((it,i)=>`
-    <tr><td class="rank">${i+1}</td><td>${it.item}</td><td class="num">${fI(it.rev)}</td><td class="num">${fN(it.qty)}</td></tr>
+    <tr style="cursor:pointer" onclick="showItemDetail('${it.item.replace(/'/g,"\\'")}')"><td class="rank">${i+1}</td><td><b style="color:var(--a)">${it.item}</b></td><td class="num">${fI(it.rev)}</td><td class="num">${fN(it.qty)}</td></tr>
   `).join('')||'<tr><td colspan="4" class="empty">No data</td></tr>';
 
   // Top categories
@@ -1259,10 +1139,111 @@ function buildItemsPage(){
     if(r.invoice)itemMap[r.item].orders.add(r.invoice);
   });
   const items=Object.values(itemMap).map(x=>({...x,orders:x.orders.size,avg:x.qty?x.rev/x.qty:0})).sort((a,b)=>b.rev-a.rev);
-  document.getElementById('itemsBadge').textContent=items.length+' items';
+  document.getElementById('itemsBadge').textContent=items.length+' items · click any for details';
   document.querySelector('#itemsTbl tbody').innerHTML=items.slice(0,200).map((it,i)=>`
-    <tr><td class="rank">${i+1}</td><td>${it.item}</td><td>${it.cat||'-'}</td><td class="num">${fI(it.rev)}</td><td class="num">${fN(it.qty)}</td><td class="num">${fN(it.orders)}</td><td class="num">${fF(it.avg)}</td></tr>
+    <tr style="cursor:pointer" onclick="showItemDetail('${it.item.replace(/'/g,"\\'")}')" data-testid="item-row-${i}">
+      <td class="rank">${i+1}</td><td><b style="color:var(--a)">${it.item}</b></td><td>${it.cat||'-'}</td><td class="num">${fI(it.rev)}</td><td class="num">${fN(it.qty)}</td><td class="num">${fN(it.orders)}</td><td class="num">${fF(it.avg)}</td>
+    </tr>
   `).join('')||'<tr><td colspan="7" class="empty">No data</td></tr>';
+}
+
+// ════════════════════════════════════════════════════════════
+// ITEM DETAIL MODAL
+// ════════════════════════════════════════════════════════════
+function showItemDetail(itemName){
+  // Aggregate across ALL outlets (not filtered) - show complete history
+  const allMatches=[];
+  OUTLETS.forEach(o=>{
+    (oData[o.id]||[]).forEach(r=>{
+      if(r.item===itemName)allMatches.push({...r,outletId:o.id,outletName:o.name,outletColor:o.color});
+    });
+  });
+  if(!allMatches.length){toast('No data for item','err');return;}
+  // Also compute filtered view
+  const filtered=allMatches.filter(r=>{
+    if(!filterFrom&&!filterTo)return true;
+    if(!r.date)return false;
+    if(filterFrom&&r.date<filterFrom)return false;
+    if(filterTo&&r.date>filterTo)return false;
+    return true;
+  });
+  const use=filtered.length?filtered:allMatches;
+  
+  const totalRev=use.reduce((s,r)=>s+r.total,0);
+  const totalQty=use.reduce((s,r)=>s+r.qty,0);
+  const orders=new Set(use.map(r=>r.invoice).filter(Boolean));
+  const avgPrice=totalQty?totalRev/totalQty:0;
+  const cat=use[0]?.cat||'-';
+  const sub=use[0]?.flt||'-';
+  
+  // Per-outlet breakdown
+  const byOutlet={};
+  use.forEach(r=>{
+    if(!byOutlet[r.outletId])byOutlet[r.outletId]={name:r.outletName,color:r.outletColor,rev:0,qty:0,orders:new Set()};
+    byOutlet[r.outletId].rev+=r.total;
+    byOutlet[r.outletId].qty+=r.qty;
+    if(r.invoice)byOutlet[r.outletId].orders.add(r.invoice);
+  });
+  const outletList=Object.values(byOutlet).sort((a,b)=>b.rev-a.rev);
+  const maxOR=Math.max(...outletList.map(o=>o.rev),1);
+
+  // Monthly breakdown
+  const byMonth={};
+  use.forEach(r=>{if(!byMonth[r.month])byMonth[r.month]={rev:0,qty:0};byMonth[r.month].rev+=r.total;byMonth[r.month].qty+=r.qty;});
+  const months=Object.keys(byMonth).filter(Boolean).sort();
+  
+  // Daily series (for chart)
+  const byDay={};
+  use.forEach(r=>{if(!r.date)return;const k=r.date.toISOString().split('T')[0];byDay[k]=(byDay[k]||0)+r.total;});
+  const days=Object.keys(byDay).sort();
+
+  // First / last sold
+  const dates=use.map(r=>r.date).filter(Boolean).sort((a,b)=>a-b);
+  const firstSold=dates[0]?dates[0].toLocaleDateString('en-IN',{day:'2-digit',month:'short',year:'2-digit'}):'-';
+  const lastSold=dates[dates.length-1]?dates[dates.length-1].toLocaleDateString('en-IN',{day:'2-digit',month:'short',year:'2-digit'}):'-';
+
+  document.getElementById('itemModalBody').innerHTML=`
+    <div style="margin-bottom:18px">
+      <div style="font-size:11px;color:var(--mu2);text-transform:uppercase;letter-spacing:1.2px;font-weight:700">Item Details${filtered.length<allMatches.length?' · Filtered to '+(filterFrom?fD(filterFrom):'')+' → '+(filterTo?fD(filterTo):''):' · All time'}</div>
+      <h2 style="font-size:22px;font-weight:800;margin-top:4px;color:var(--a)">${itemName}</h2>
+      <div style="font-size:12px;color:var(--mu2);margin-top:4px">📂 ${cat} · ${sub} · sold from ${firstSold} to ${lastSold}</div>
+    </div>
+    <div class="kpi-row" style="margin-bottom:18px">
+      <div class="kpi" style="--clr:#ff8c1a"><div class="kpi-lbl">Revenue</div><div class="kpi-val">${fI(totalRev)}</div><div class="kpi-sub">${fF(totalRev)}</div></div>
+      <div class="kpi" style="--clr:#1ec9b0"><div class="kpi-lbl">Quantity Sold</div><div class="kpi-val">${fN(totalQty)}</div><div class="kpi-sub">units</div></div>
+      <div class="kpi" style="--clr:#7c5cf5"><div class="kpi-lbl">Orders</div><div class="kpi-val">${fN(orders.size)}</div><div class="kpi-sub">unique invoices</div></div>
+      <div class="kpi" style="--clr:#ff4d8d"><div class="kpi-lbl">Avg Price</div><div class="kpi-val">${fF(avgPrice)}</div><div class="kpi-sub">per unit</div></div>
+    </div>
+    <div class="grid-2" style="margin-bottom:18px">
+      <div class="card"><div class="card-h"><span class="card-t">🏪 Sales by Outlet</span><span class="card-b">${outletList.length} outlet(s)</span></div>
+        <div class="bars">${outletList.map(o=>`
+          <div class="bar-row"><span class="lbl" style="color:${o.color}">${o.name}</span><div class="bar-trk"><div class="bar-fill" style="--clr:${o.color};width:${(o.rev/maxOR*100).toFixed(1)}%"></div></div><span class="val">${fI(o.rev)} · ${fN(o.qty)}</span></div>
+        `).join('')}</div>
+      </div>
+      <div class="card"><div class="card-h"><span class="card-t">📅 Monthly Trend</span><span class="card-b">${months.length} month(s)</span></div>
+        <table class="tbl" style="font-size:11px"><thead><tr><th>Month</th><th style="text-align:right">Revenue</th><th style="text-align:right">Qty</th></tr></thead>
+        <tbody>${months.map(m=>`<tr><td><b>${monthLabel(m)}</b></td><td class="num">${fI(byMonth[m].rev)}</td><td class="num">${fN(byMonth[m].qty)}</td></tr>`).join('')}</tbody></table>
+      </div>
+    </div>
+    <div class="card" style="margin-bottom:18px">
+      <div class="card-h"><span class="card-t">📈 Daily Sales Chart</span><span class="card-b">${days.length} days</span></div>
+      <div class="chart-wrap"><canvas id="itemDailyChart" height="200"></canvas></div>
+    </div>
+    <div class="card">
+      <div class="card-h"><span class="card-t">📋 Recent Transactions</span><span class="card-b">Latest 30 of ${use.length}</span></div>
+      <div style="overflow-x:auto;max-height:340px"><table class="tbl"><thead><tr><th>Date</th><th>Outlet</th><th>Invoice</th><th style="text-align:right">Qty</th><th style="text-align:right">Disc</th><th style="text-align:right">Total</th></tr></thead>
+      <tbody>${use.slice().sort((a,b)=>(b.date||0)-(a.date||0)).slice(0,30).map(r=>`<tr><td>${r.date?r.date.toLocaleDateString('en-IN'):'-'}</td><td><span style="color:${r.outletColor};font-weight:600">${r.outletName}</span></td><td>${r.invoice||'-'}</td><td class="num">${fN(r.qty)}</td><td class="num">${fF(r.disc)}</td><td class="num"><b>${fF(r.total)}</b></td></tr>`).join('')}</tbody></table></div>
+    </div>
+  `;
+  document.getElementById('itemModal').style.display='flex';
+  setTimeout(()=>{
+    drawLine('itemDailyChart',days.map(d=>fD(d)),days.map(d=>byDay[d]),itemName,'#ff8c1a');
+  },50);
+}
+
+function closeItemModal(){
+  document.getElementById('itemModal').style.display='none';
+  destroyChart('itemDailyChart');
 }
 
 // ════════════════════════════════════════════════════════════
@@ -1366,6 +1347,329 @@ function buildExpensesPage(){
 }
 
 // ════════════════════════════════════════════════════════════
+// P&L UPLOAD (multi-sheet workbook, one sheet per outlet)
+// ════════════════════════════════════════════════════════════
+const PL_UPLOADED={};  // {outletId: {monthKey: {lineItem: value}}}
+let _pendingPLData=null;  // parsed data awaiting month confirmation
+
+function _matchOutlet(sheetName){
+  const s=String(sheetName||'').toUpperCase().replace(/[()\s_-]+/g,'');
+  // Match against outlet ids/names (allowing variations: PASHCHIM, PASCHIM, etc.)
+  for(const o of OUTLETS){
+    const idClean=o.id.toUpperCase().replace(/[\s_-]+/g,'');
+    const nameClean=o.name.toUpperCase().replace(/[\s_-]+/g,'');
+    if(s.includes(idClean)||s.includes(nameClean))return o.id;
+    // Handle PASHCHIM vs PASCHIM variant
+    if(idClean==='PASCHIMVIHAR'&&(s.includes('PASHCHIMVIHAR')||s.includes('PASCHIMVIHAR')))return o.id;
+    if(idClean==='MAYURVIHAR'&&s.includes('MAYURVIHAR'))return o.id;
+    if(idClean==='MAYAPURI'&&s.includes('MAYAPURI'))return o.id;
+  }
+  return null;
+}
+
+function parsePLSheet(raw){
+  // Find first data row (column A is a label, label looks like a P&L line item)
+  const items={};
+  for(let i=0;i<raw.length;i++){
+    const row=raw[i];if(!row)continue;
+    const label=String(row[0]||'').trim();
+    if(!label)continue;
+    // Skip rows that look like headers/titles
+    const lu=label.toUpperCase();
+    if(lu.includes('DAARU WALA')||lu==='PARTICULARS'||lu==='PROFIT & LOSS ACCOUNT'||lu.includes('PROFIT & LOSS ACCOUNTS'))continue;
+    // Sum all numeric values in this row
+    let total=0,hasNum=false;
+    for(let j=1;j<row.length;j++){
+      const v=row[j];
+      if(typeof v==='number'&&!isNaN(v)){total+=v;hasNum=true;}
+      else if(typeof v==='string'){
+        const n=parseFloat(v.replace(/[,₹\s]/g,''));
+        if(!isNaN(n)){total+=n;hasNum=true;}
+      }
+    }
+    if(hasNum&&total!==0)items[label]=total;
+    else if(!hasNum&&!items[label])items[label]=0;  // keep label even if no value (for structure)
+  }
+  return items;
+}
+
+function loadPLFile(inp){
+  if(!inp.files[0])return;
+  const file=inp.files[0];
+  const r=new FileReader();
+  r.onload=e=>{
+    try{
+      const wb=XLSX.read(e.target.result,{type:'array',cellDates:true});
+      const parsedSheets={};
+      let matchedCount=0;
+      wb.SheetNames.forEach(sn=>{
+        const oid=_matchOutlet(sn);
+        if(!oid){console.log('Unmatched sheet:',sn);return;}
+        const raw=XLSX.utils.sheet_to_json(wb.Sheets[sn],{header:1,defval:''});
+        const items=parsePLSheet(raw);
+        if(Object.keys(items).length){
+          parsedSheets[oid]={sheetName:sn,items};
+          matchedCount++;
+        }
+      });
+      if(!matchedCount){toast('No outlet sheets found in this P&L file','err');return;}
+      _pendingPLData={fileName:file.name,sheets:parsedSheets};
+      // Open month picker
+      document.getElementById('plMonthFileInfo').textContent=file.name+' · '+matchedCount+' outlet(s): '+Object.keys(parsedSheets).map(k=>OUTLETS.find(o=>o.id===k)?.name||k).join(', ');
+      // Populate year options (current year ± 2)
+      const yr=new Date().getFullYear();
+      const ysel=document.getElementById('plYearSel');
+      ysel.innerHTML='';
+      for(let y=yr-2;y<=yr+1;y++)ysel.innerHTML+=`<option value="${y}" ${y===yr?'selected':''}>${y}</option>`;
+      // Default month: current
+      document.getElementById('plMonthSel').value=String(new Date().getMonth()+1).padStart(2,'0');
+      document.getElementById('plMonthModal').style.display='flex';
+    }catch(err){toast('P&L parse error: '+err.message,'err');console.error(err);}
+  };
+  r.readAsArrayBuffer(file);
+  inp.value='';
+}
+
+function closePlMonthModal(){document.getElementById('plMonthModal').style.display='none';_pendingPLData=null;}
+
+async function confirmPlUpload(){
+  if(!_pendingPLData){closePlMonthModal();return;}
+  const y=document.getElementById('plYearSel').value;
+  const m=document.getElementById('plMonthSel').value;
+  const mk=y+'-'+m;
+  Object.keys(_pendingPLData.sheets).forEach(oid=>{
+    if(!PL_UPLOADED[oid])PL_UPLOADED[oid]={};
+    PL_UPLOADED[oid][mk]=_pendingPLData.sheets[oid].items;
+  });
+  const outletNames=Object.keys(_pendingPLData.sheets).map(k=>OUTLETS.find(o=>o.id===k)?.name||k).join(', ');
+  toast('P&L saved for '+outletNames+' · '+monthLabel(mk),'ok');
+  closePlMonthModal();
+  await sbSavePL();
+  refreshExpSlotPL();
+  buildPLPage();
+}
+
+function refreshExpSlotPL(){
+  const ex=document.getElementById('plSlot');if(!ex)return;
+  const cnt=Object.keys(PL_UPLOADED).reduce((s,o)=>s+Object.keys(PL_UPLOADED[o]).length,0);
+  if(cnt>0){
+    ex.classList.add('loaded');
+    ex.style.borderColor='var(--green)';
+    document.getElementById('plTxt').innerHTML='<span style="color:var(--green);font-weight:700">✅ '+cnt+' P&L statement(s) loaded</span>';
+  } else {
+    ex.classList.remove('loaded');
+    document.getElementById('plTxt').textContent='P&L.xlsx — multi-outlet workbook (one sheet per outlet)';
+  }
+}
+
+// ── Supabase save/load for P&L ──
+async function sbSavePL(){
+  const entries=[];
+  Object.keys(PL_UPLOADED).forEach(oid=>{
+    Object.keys(PL_UPLOADED[oid]).forEach(mk=>{
+      Object.entries(PL_UPLOADED[oid][mk]).forEach(([item,val])=>{
+        entries.push({outlet_id:oid,month:mk,line_item:item,value:val});
+      });
+    });
+  });
+  if(!entries.length)return;
+  try{
+    // Clear ALL existing P&L first (simpler than per-outlet-month)
+    await sbReq('pl_uploaded?outlet_id=not.is.null','DELETE').catch(()=>true);
+    for(let i=0;i<entries.length;i+=500){
+      await sbReq('pl_uploaded','POST',entries.slice(i,i+500));
+    }
+  }catch(e){
+    console.error('P&L save failed:',e.message);
+    if(String(e.message).toLowerCase().includes('does not exist')||String(e.message).includes('42P01')){
+      toast('Table "pl_uploaded" missing in Supabase — see help below','err');
+      _alertCreateTable();
+    }
+  }
+}
+async function sbLoadPL(){
+  try{
+    const rows=await sbReq('pl_uploaded?select=*&limit=200000');
+    if(!rows||!rows.length)return;
+    Object.keys(PL_UPLOADED).forEach(k=>delete PL_UPLOADED[k]);
+    rows.forEach(r=>{
+      if(!PL_UPLOADED[r.outlet_id])PL_UPLOADED[r.outlet_id]={};
+      if(!PL_UPLOADED[r.outlet_id][r.month])PL_UPLOADED[r.outlet_id][r.month]={};
+      PL_UPLOADED[r.outlet_id][r.month][r.line_item]=+r.value||0;
+    });
+  }catch(e){console.log('P&L load:',e.message);}
+}
+function _alertCreateTable(){
+  alert('To persist P&L across devices, run this SQL in Supabase → SQL Editor:\n\nCREATE TABLE pl_uploaded (\n  id BIGSERIAL PRIMARY KEY,\n  outlet_id TEXT NOT NULL,\n  month TEXT NOT NULL,\n  line_item TEXT NOT NULL,\n  value NUMERIC DEFAULT 0,\n  created_at TIMESTAMPTZ DEFAULT NOW()\n);\n\nALTER TABLE pl_uploaded ENABLE ROW LEVEL SECURITY;\nCREATE POLICY "Allow all" ON pl_uploaded FOR ALL USING (true) WITH CHECK (true);\n\nFor now data is saved in memory only (will reload from cloud once the table exists).');
+}
+
+// ════════════════════════════════════════════════════════════
+// PROFIT & LOSS
+// ════════════════════════════════════════════════════════════
+function buildPLPage(){
+  // Aggregate revenue per month (from all outlets, filtered)
+  const salesByMonth={};
+  filteredRows(allRows()).forEach(r=>{
+    if(!r.month)return;
+    salesByMonth[r.month]=(salesByMonth[r.month]||0)+r.total;
+  });
+  // Aggregate expenses per month (filtered)
+  const expByMonth={};
+  filteredExp().forEach(r=>{
+    if(!r.month)return;
+    const tot=(r.veg||0)+(r.dairy||0)+(r.nonveg||0)+(r.grocery||0)+(r.liquor||0)+(r.localPurch||0)+(r.maintenance||0)+(r.misc||0)+(r.hookah||0)+(r.gas||0)+(r.charcoal||0);
+    if(!expByMonth[r.month])expByMonth[r.month]={sale:0,veg:0,dairy:0,nonveg:0,grocery:0,liquor:0,localPurch:0,maintenance:0,misc:0,hookah:0,gas:0,charcoal:0,total:0};
+    expByMonth[r.month].sale+=r.sale||0;
+    expByMonth[r.month].veg+=r.veg||0;
+    expByMonth[r.month].dairy+=r.dairy||0;
+    expByMonth[r.month].nonveg+=r.nonveg||0;
+    expByMonth[r.month].grocery+=r.grocery||0;
+    expByMonth[r.month].liquor+=r.liquor||0;
+    expByMonth[r.month].localPurch+=r.localPurch||0;
+    expByMonth[r.month].maintenance+=r.maintenance||0;
+    expByMonth[r.month].misc+=r.misc||0;
+    expByMonth[r.month].hookah+=r.hookah||0;
+    expByMonth[r.month].gas+=r.gas||0;
+    expByMonth[r.month].charcoal+=r.charcoal||0;
+    expByMonth[r.month].total+=tot;
+  });
+  const allMonths=[...new Set([...Object.keys(salesByMonth),...Object.keys(expByMonth)])].sort();
+
+  // Totals
+  const totalRev=Object.values(salesByMonth).reduce((s,v)=>s+v,0);
+  const totalExp=Object.values(expByMonth).reduce((s,v)=>s+v.total,0);
+  const gp=totalRev-totalExp;
+  const margin=totalRev?((gp/totalRev)*100):0;
+  const avgMonthly=allMonths.length?gp/allMonths.length:0;
+
+  document.getElementById('plKpis').innerHTML=`
+    <div class="kpi" style="--clr:#1ec9b0"><div class="kpi-lbl">Total Revenue</div><div class="kpi-val">${fI(totalRev)}</div><div class="kpi-sub">${fF(totalRev)}</div></div>
+    <div class="kpi" style="--clr:#ff4d8d"><div class="kpi-lbl">Total Expenses</div><div class="kpi-val">${fI(totalExp)}</div><div class="kpi-sub">${fF(totalExp)}</div></div>
+    <div class="kpi" style="--clr:${gp>=0?'#26d782':'#ff5470'}"><div class="kpi-lbl">Gross Profit</div><div class="kpi-val">${fI(gp)}</div><div class="kpi-sub">${margin.toFixed(1)}% margin</div></div>
+    <div class="kpi" style="--clr:#7c5cf5"><div class="kpi-lbl">Avg Monthly GP</div><div class="kpi-val">${fI(avgMonthly)}</div><div class="kpi-sub">${allMonths.length} months</div></div>
+  `;
+
+  if(!allMonths.length){
+    document.querySelector('#plTbl thead').innerHTML='';
+    document.querySelector('#plTbl tbody').innerHTML='<tr><td class="empty"><b>💹</b>No data. Upload sales & expense files.</td></tr>';
+    document.getElementById('plMonthsBadge').textContent='—';
+    destroyChart('plChart');destroyChart('plGpChart');
+    return;
+  }
+
+  document.getElementById('plMonthsBadge').textContent=allMonths.length+' months';
+
+  // Build table: line items as rows, months as columns
+  const lineItems=[
+    {key:'_rev',label:'Revenue',cls:'pl-rev',valOf:m=>salesByMonth[m]||0},
+    {key:'_sep1',label:'—',cls:'pl-sep',valOf:()=>null},
+    {key:'veg',label:'Vegetables',valOf:m=>(expByMonth[m]||{}).veg||0},
+    {key:'dairy',label:'Dairy',valOf:m=>(expByMonth[m]||{}).dairy||0},
+    {key:'nonveg',label:'Non-Veg',valOf:m=>(expByMonth[m]||{}).nonveg||0},
+    {key:'grocery',label:'Grocery',valOf:m=>(expByMonth[m]||{}).grocery||0},
+    {key:'liquor',label:'Liquor Purchase',valOf:m=>(expByMonth[m]||{}).liquor||0},
+    {key:'localPurch',label:'Local Purchase',valOf:m=>(expByMonth[m]||{}).localPurch||0},
+    {key:'maintenance',label:'Maintenance',valOf:m=>(expByMonth[m]||{}).maintenance||0},
+    {key:'hookah',label:'Hookah',valOf:m=>(expByMonth[m]||{}).hookah||0},
+    {key:'gas',label:'Gas',valOf:m=>(expByMonth[m]||{}).gas||0},
+    {key:'charcoal',label:'Charcoal',valOf:m=>(expByMonth[m]||{}).charcoal||0},
+    {key:'misc',label:'Misc',valOf:m=>(expByMonth[m]||{}).misc||0},
+    {key:'_totExp',label:'Total Expenses',cls:'pl-exp',valOf:m=>(expByMonth[m]||{}).total||0},
+    {key:'_sep2',label:'—',cls:'pl-sep',valOf:()=>null},
+    {key:'_gp',label:'Gross Profit',cls:'pl-gp',valOf:m=>(salesByMonth[m]||0)-((expByMonth[m]||{}).total||0)},
+    {key:'_margin',label:'Margin %',cls:'pl-margin',valOf:m=>{const r=salesByMonth[m]||0;const e=(expByMonth[m]||{}).total||0;return r?((r-e)/r*100):0;}}
+  ];
+
+  const thead='<tr><th>Line Item</th>'+allMonths.map(m=>`<th style="text-align:right">${monthLabel(m)}</th>`).join('')+'<th style="text-align:right">Total</th></tr>';
+  document.querySelector('#plTbl thead').innerHTML=thead;
+  document.querySelector('#plTbl tbody').innerHTML=lineItems.map(li=>{
+    if(li.cls==='pl-sep')return `<tr style="background:var(--bd)"><td colspan="${allMonths.length+2}" style="padding:2px"></td></tr>`;
+    const vals=allMonths.map(li.valOf);
+    const total=li.key==='_margin'?(()=>{const tr=totalRev;const te=totalExp;return tr?((tr-te)/tr*100):0;})():vals.reduce((s,v)=>s+(v||0),0);
+    let bold='',color='';
+    if(li.cls==='pl-rev'){bold='font-weight:800;';color='color:#1ec9b0;';}
+    if(li.cls==='pl-exp'){bold='font-weight:800;';color='color:#ff4d8d;';}
+    if(li.cls==='pl-gp'){bold='font-weight:800;';color=`color:${total>=0?'#26d782':'#ff5470'};`;}
+    return `<tr><td style="${bold}">${li.label}</td>${vals.map(v=>`<td class="num" style="${bold}${color}">${li.key==='_margin'?(v?v.toFixed(1)+'%':'-'):(v?fI(v):'-')}</td>`).join('')}<td class="num" style="${bold}${color}"><b>${li.key==='_margin'?total.toFixed(1)+'%':fI(total)}</b></td></tr>`;
+  }).join('');
+
+  // Charts: Revenue vs Expenses bar, Gross Profit line
+  drawDualBar('plChart',allMonths.map(monthLabel),allMonths.map(m=>salesByMonth[m]||0),allMonths.map(m=>(expByMonth[m]||{}).total||0));
+  const gpSeries=allMonths.map(m=>(salesByMonth[m]||0)-((expByMonth[m]||{}).total||0));
+  drawLine('plGpChart',allMonths.map(monthLabel),gpSeries,'Gross Profit',gpSeries.every(v=>v>=0)?'#26d782':'#ff5470');
+
+  // === Uploaded P&L statements ===
+  buildUploadedPLSection();
+}
+
+function buildUploadedPLSection(){
+  const wrap=document.getElementById('uploadedPLWrap');
+  if(!wrap)return;
+  const outletIds=Object.keys(PL_UPLOADED).filter(o=>Object.keys(PL_UPLOADED[o]).length);
+  if(!outletIds.length){
+    wrap.innerHTML='<div class="empty" style="padding:24px"><b>📤</b>No uploaded P&L yet. Upload your P&L Excel from the Upload tab.</div>';
+    return;
+  }
+  // Outlet tabs
+  if(!window._uplPLOutlet||!outletIds.includes(window._uplPLOutlet))window._uplPLOutlet=outletIds[0];
+  const tabs=outletIds.map(oid=>{
+    const o=OUTLETS.find(x=>x.id===oid);
+    return `<button class="otab ${oid===window._uplPLOutlet?'active':''}" onclick="selectUplPLOutlet('${oid}',this)" data-testid="upl-pl-outlet-${oid}">${o?o.icon+' '+o.name:oid}</button>`;
+  }).join('');
+  wrap.innerHTML=`
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:14px;flex-wrap:wrap;gap:8px;">
+      <div class="otabs">${tabs}</div>
+      <span style="font-size:11px;color:var(--mu2);">Click a month column to see details</span>
+    </div>
+    <div id="uplPLDetail"></div>
+  `;
+  renderUplPLDetail(window._uplPLOutlet);
+}
+function selectUplPLOutlet(oid,btn){
+  window._uplPLOutlet=oid;
+  document.querySelectorAll('#uploadedPLWrap .otab').forEach(b=>b.classList.remove('active'));
+  btn.classList.add('active');
+  renderUplPLDetail(oid);
+}
+function renderUplPLDetail(oid){
+  const data=PL_UPLOADED[oid];if(!data){document.getElementById('uplPLDetail').innerHTML='';return;}
+  const months=Object.keys(data).sort();
+  // Collect all line items in order seen
+  const itemOrder=[];const seen={};
+  months.forEach(m=>{Object.keys(data[m]).forEach(li=>{if(!seen[li]){seen[li]=true;itemOrder.push(li);}});});
+  // KPIs from latest month
+  const latest=months[months.length-1];
+  const lm=data[latest]||{};
+  const _f=k=>{for(const key of Object.keys(lm)){if(key.toLowerCase().includes(k))return lm[key];}return null;};
+  const totalSale=_f('sales - total')||_f('total sales')||0;
+  const totalCost=_f('total operating cost')||0;
+  const ebitda=_f('ebitda - at outlet level')||(typeof _f('ebitda')==='number'?_f('ebitda'):null)||(totalSale-totalCost);
+  const margin=totalSale?((ebitda/totalSale)*100):0;
+  // Table thead: line item + months + total
+  const thead='<tr><th style="min-width:280px">Line Item</th>'+months.map(m=>`<th style="text-align:right">${monthLabel(m)}</th>`).join('')+'<th style="text-align:right">Total</th></tr>';
+  const tbody=itemOrder.map(li=>{
+    const luc=li.toUpperCase();
+    let bold='',color='';
+    if(luc.includes('SALES - TOTAL')||luc==='TOTAL SALES'){bold='font-weight:800;';color='color:#1ec9b0;';}
+    else if(luc.includes('TOTAL F & B')||luc.includes('TOTAL FOOD')||luc.includes('TOTAL FUEL')||luc.includes('TOTAL RENT')||luc.includes('TOTAL ELECTRICITY')||luc.includes('TOTAL CONSUMABLES')||luc.includes('TOTAL PERSONNEL')||luc.includes('TOTAL OUTSOURSED')||luc.includes('TOTAL MARKETING')||luc.includes('TOTAL FINANCIAL')||luc.includes('TOTAL OTHER VARIABLE')||luc.includes('TOTAL OTHER INCOME')||luc.includes('TOTAL OPERATING')){bold='font-weight:700;';color='color:#ff8c1a;';}
+    else if(luc.includes('EBITDA')){bold='font-weight:800;';color='color:#7c5cf5;';}
+    const vals=months.map(m=>data[m][li]);
+    const validVals=vals.filter(v=>typeof v==='number'&&v!==0);
+    const total=validVals.length?validVals.reduce((s,v)=>s+v,0):null;
+    return `<tr><td style="${bold}">${li}</td>${vals.map(v=>`<td class="num" style="${bold}${color}">${(v==null||v===0)?'-':(luc.includes('%')?(v.toFixed(1)+'%'):fF(v))}</td>`).join('')}<td class="num" style="${bold}${color}"><b>${total!=null?(luc.includes('%')?(total/months.length).toFixed(1)+'%':fF(total)):'-'}</b></td></tr>`;
+  }).join('');
+  document.getElementById('uplPLDetail').innerHTML=`
+    <div class="kpi-row" style="margin-bottom:14px">
+      <div class="kpi" style="--clr:#1ec9b0"><div class="kpi-lbl">Total Sales</div><div class="kpi-val">${fI(totalSale)}</div><div class="kpi-sub">${monthLabel(latest)}</div></div>
+      <div class="kpi" style="--clr:#ff8c1a"><div class="kpi-lbl">Total Operating Cost</div><div class="kpi-val">${fI(totalCost)}</div><div class="kpi-sub">all categories</div></div>
+      <div class="kpi" style="--clr:${ebitda>=0?'#26d782':'#ff5470'}"><div class="kpi-lbl">EBITDA</div><div class="kpi-val">${fI(ebitda)}</div><div class="kpi-sub">outlet level</div></div>
+      <div class="kpi" style="--clr:#7c5cf5"><div class="kpi-lbl">EBITDA Margin</div><div class="kpi-val">${margin.toFixed(1)}%</div><div class="kpi-sub">of sales</div></div>
+    </div>
+    <div style="overflow:auto;max-height:600px"><table class="tbl">${'<thead>'+thead+'</thead>'}<tbody>${tbody}</tbody></table></div>
+  `;
+}
+
+// ════════════════════════════════════════════════════════════
 // CHARTS (Chart.js)
 // ════════════════════════════════════════════════════════════
 function destroyChart(id){if(chartRefs[id]){try{chartRefs[id].destroy();}catch(e){}delete chartRefs[id];}}
@@ -1430,6 +1734,7 @@ function refreshAll(){
   buildCategoriesPage();
   buildComparePage();
   buildExpensesPage();
+  buildPLPage();
   buildInventoryPage();
 }
 
@@ -1457,6 +1762,28 @@ function parseDSR(raw, filename){
   const sizeIdx=hdrs.findIndex(h=>h.includes('SIZE')||h==='ML');
   const brandIdx=hdrs.findIndex(h=>h.includes('BRAND')&&!h.includes('CODE'));
 
+  // Helper: detect category from any text
+  const detectCat=txt=>{
+    const u=String(txt||'').toUpperCase();
+    if(!u)return null;
+    if(/\b(BEER|BIER|BEERS|LAGER|ALE|STOUT|PILSNER)\b/.test(u))return 'BEER';
+    if(/\b(VODKA)\b/.test(u))return 'VODKA';
+    if(/\b(RUM)\b/.test(u))return 'RUM';
+    if(/\b(WHISKY|WHISKEY|SCOTCH|BOURBON)\b/.test(u))return 'WHISKY';
+    if(/\b(GIN)\b/.test(u))return 'GIN';
+    if(/\b(TEQUILA)\b/.test(u))return 'TEQUILA';
+    if(/\b(BRANDY|COGNAC)\b/.test(u))return 'BRANDY';
+    if(/\b(WINE|CHAMPAGNE|PROSECCO|SPARKLING)\b/.test(u))return 'WINE';
+    return null;
+  };
+  // Heuristic: detect category from a brand name's keywords
+  const BEER_BRANDS=/\b(TUBORG|KINGFISHER|BUDWEISER|CARLSBERG|HEINEKEN|CORONA|FOSTER|ROYAL CHALLENGE|BIRA|HOEGAARDEN|STELLA|GUINNESS|MILLER|AMSTEL|SAPPORO|KIRIN|ASAHI|ERDINGER|PAULANER|GODFATHER|HAYWARDS|KNOCK[\s-]?OUT|KO\s|MAGNUS|MEDUSA|SIMBA|WHITE BULL|EAGLE|RHINO|CANNON|SPICE)\b/;
+  const detectBrandCat=brand=>{
+    const u=String(brand||'').toUpperCase();
+    if(BEER_BRANDS.test(u)||/\b\d{2,3}\s*ML?\b.*BEER\b/i.test(u))return 'BEER';
+    return null;
+  };
+
   // 2. Extract month from filename or title row
   let monthKey='unknown', monthName=filename;
   const titleRow=(raw[0]||[]).map(c=>c?String(c):'').join(' ');
@@ -1480,23 +1807,31 @@ function parseDSR(raw, filename){
     const row=raw[i];if(!row)continue;
     const sno=row[0];
     const brandName=brandIdx>=0?row[brandIdx]:row[1];
-    // Category header row: no sno but has a brand-name-style category text
-    if((sno===''||sno==null)&&brandName){
-      const bn=String(brandName).trim().toUpperCase();
-      if(bn==='VODKA')currentCat='VODKA';
-      else if(bn==='RUM')currentCat='RUM';
-      else if(bn==='BEER'||bn.includes('BEER'))currentCat='BEER';
-      else if(bn.includes('WHISKY')||bn.includes('SCOTCH'))currentCat='WHISKY';
-      continue;
+    // Category header row detection: row has no/empty brand fields except a category-like phrase anywhere
+    const snoNum=parseFloat(sno);
+    const isHeaderRow=(sno==null||sno===''||isNaN(snoNum))&&!parseFloat(openBalIdx>=0?row[openBalIdx]:row[3]);
+    if(isHeaderRow){
+      // Try all cells in this row for a category match
+      let foundCat=null;
+      for(let j=0;j<row.length;j++){
+        const c=detectCat(row[j]);
+        if(c){foundCat=c;break;}
+      }
+      if(foundCat){currentCat=foundCat;continue;}
+      // If no category but also no valid sno, skip
+      if(sno==null||sno===''||isNaN(snoNum))continue;
     }
     if(sno==null||sno===''||!brandName)continue;
-    if(isNaN(parseFloat(sno)))continue;
+    if(isNaN(snoNum))continue;
     const size=parseFloat(sizeIdx>=0?row[sizeIdx]:row[2])||0;
     const oBal=parseFloat(openBalIdx>=0?row[openBalIdx]:row[3])||0;
     const received=parseFloat(receivedIdx>=0?row[receivedIdx]:row[4])||0;
     const mrp=parseFloat(mrpIdx>=0?row[mrpIdx]:row[6])||0;
     const totalSold=totalSaleIdx>0?(parseFloat(row[totalSaleIdx])||0):0;
     const balance=balanceIdx>0?Math.max(0,parseFloat(row[balanceIdx])||0):Math.max(0,oBal+received-totalSold);
+    // Final category: prefer detection from brand name (catches beer items even if section header missing)
+    const brandCatHint=detectBrandCat(brandName);
+    const catForThis=brandCatHint||currentCat;
     // Count daily sales columns having non-zero values
     let dailyCount=0;
     for(let j=dailyStart;j<dailyEnd&&j<row.length;j++){
@@ -1505,7 +1840,7 @@ function parseDSR(raw, filename){
     }
     brands.push({
       brand:String(brandName).trim(),
-      size,category:currentCat,
+      size,category:catForThis,
       openBal:oBal,received,totalSold,balance,mrp,
       daysInMonth:dailyCount||30
     });
@@ -1605,15 +1940,24 @@ function buildInventoryPage(){
   const outletsWithData=OUTLETS.filter(o=>INV_DSR[o.id]&&Object.keys(INV_DSR[o.id]).length);
   const tabsEl=document.getElementById('invOutletTabs');
   if(!tabsEl)return;
+  const addBtn=document.getElementById('addStockBtn');
+  const showAdd=role==='admin';
+  if(addBtn)addBtn.style.display=showAdd?'inline-block':'none';
   if(!outletsWithData.length){
+    // For admin: still show outlet tabs so they can pick one to add stock to
+    if(showAdd){
+      if(!invActiveOutlet)invActiveOutlet=OUTLETS[0].id;
+      tabsEl.innerHTML=OUTLETS.map(o=>`<button class="otab ${o.id===invActiveOutlet?'active':''}" data-oid="${o.id}" onclick="selectInvOutlet('${o.id}',this)" data-testid="inv-outlet-${o.id}">${o.icon} ${o.name}</button>`).join('');
+      document.getElementById('invKpis').innerHTML='<div class="empty" style="grid-column:1/-1;padding:24px"><b>📦</b>No inventory data for any outlet yet. Click <b style="color:var(--a)">"➕ Receive / Add Stock"</b> to add brands manually, or go to Upload tab to drop a DSR Excel.</div>';
+      document.getElementById('invAlertBadge').textContent='—';
+      document.getElementById('invFullBadge').textContent='—';
+      document.querySelector('#invAlertsTbl tbody').innerHTML='';
+      document.querySelector('#invFullTbl tbody').innerHTML='';
+      document.getElementById('invCatBars').innerHTML='';
+      return;
+    }
     tabsEl.innerHTML='';
-    document.getElementById('invKpis').innerHTML='';
-    document.getElementById('invAlertBadge').textContent='—';
-    document.getElementById('invFullBadge').textContent='—';
-    document.querySelector('#invAlertsTbl tbody').innerHTML='';
-    document.querySelector('#invFullTbl tbody').innerHTML='';
-    document.getElementById('invCatBars').innerHTML='';
-    document.getElementById('invKpis').innerHTML='<div class="empty" style="grid-column:1/-1;padding:30px"><b>📦</b>No inventory data. Go to Upload tab and drop DSR Excel files per outlet.</div>';
+    document.getElementById('invKpis').innerHTML='<div class="empty" style="grid-column:1/-1;padding:30px"><b>📦</b>No inventory data. Ask Admin to upload DSR files.</div>';
     return;
   }
   // Add data-cat attribute to category buttons (for active tracking)
@@ -1702,6 +2046,89 @@ function renderInventory(outletId){
   `).join('')||'<tr><td colspan="9" class="empty">No data</td></tr>';
 }
 
+// ── Stock add/receive modal ──
+let stockMode='receive';
+function openStockModal(){
+  if(role!=='admin'){toast('Only admin can add stock','err');return;}
+  if(!invActiveOutlet){toast('Select an outlet first','err');return;}
+  const o=OUTLETS.find(x=>x.id===invActiveOutlet);
+  document.getElementById('stockOutletLbl').textContent='Outlet: '+(o?o.icon+' '+o.name:invActiveOutlet);
+  // populate brand select with brands in the latest month
+  const months=Object.keys(INV_DSR[invActiveOutlet]||{}).sort();
+  const latest=months[months.length-1];
+  const brands=latest?INV_DSR[invActiveOutlet][latest]:[];
+  const sel=document.getElementById('stockBrandSelect');
+  if(brands.length){
+    sel.innerHTML=brands.map((b,i)=>`<option value="${i}">${b.brand}${b.size?' · '+b.size+'ml':''} · bal:${b.balance}</option>`).join('');
+    sel.disabled=false;
+  } else {
+    sel.innerHTML='<option>No brands yet — use "Add New Brand"</option>';
+    sel.disabled=true;
+  }
+  document.getElementById('stockReceiveQty').value='';
+  document.getElementById('newBrandName').value='';
+  document.getElementById('newBrandSize').value='';
+  document.getElementById('newBrandMrp').value='';
+  document.getElementById('newBrandOpen').value='';
+  document.getElementById('newBrandReceived').value='';
+  setStockMode('receive',document.querySelector('#stockModal .ltab'));
+  document.getElementById('stockModal').style.display='flex';
+}
+function closeStockModal(){document.getElementById('stockModal').style.display='none';}
+function setStockMode(mode,btn){
+  stockMode=mode;
+  document.querySelectorAll('#stockModal .ltab').forEach(b=>b.classList.remove('active'));
+  if(btn)btn.classList.add('active');
+  document.getElementById('stockReceiveForm').style.display=mode==='receive'?'block':'none';
+  document.getElementById('stockNewForm').style.display=mode==='new'?'block':'none';
+  document.getElementById('stockModalTitle').textContent=mode==='receive'?'Receive Stock':'Add New Brand';
+}
+function _getLatestMonthKey(){
+  const months=Object.keys(INV_DSR[invActiveOutlet]||{}).sort();
+  if(months.length)return months[months.length-1];
+  // Use current month as fallback
+  const d=new Date();
+  return d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0');
+}
+async function receiveStockSubmit(){
+  const idx=parseInt(document.getElementById('stockBrandSelect').value);
+  const qty=parseInt(document.getElementById('stockReceiveQty').value);
+  if(isNaN(idx)||isNaN(qty)||qty<=0){toast('Enter a valid quantity','err');return;}
+  const mk=_getLatestMonthKey();
+  if(!INV_DSR[invActiveOutlet]||!INV_DSR[invActiveOutlet][mk]){toast('No brand list for current month','err');return;}
+  const brand=INV_DSR[invActiveOutlet][mk][idx];
+  if(!brand){toast('Brand not found','err');return;}
+  brand.received=(brand.received||0)+qty;
+  brand.balance=(brand.balance||0)+qty;
+  toast(qty+' added to '+brand.brand,'ok');
+  await sbSaveInv();
+  closeStockModal();
+  renderInventory(invActiveOutlet);
+  refreshInvSlotUI(invActiveOutlet);
+}
+async function addNewBrandSubmit(){
+  const name=document.getElementById('newBrandName').value.trim();
+  const size=parseFloat(document.getElementById('newBrandSize').value)||0;
+  const cat=document.getElementById('newBrandCat').value;
+  const mrp=parseFloat(document.getElementById('newBrandMrp').value)||0;
+  const open=parseFloat(document.getElementById('newBrandOpen').value)||0;
+  const recv=parseFloat(document.getElementById('newBrandReceived').value)||0;
+  if(!name){toast('Brand name required','err');return;}
+  const mk=_getLatestMonthKey();
+  if(!INV_DSR[invActiveOutlet])INV_DSR[invActiveOutlet]={};
+  if(!INV_DSR[invActiveOutlet][mk])INV_DSR[invActiveOutlet][mk]=[];
+  // Check duplicate
+  if(INV_DSR[invActiveOutlet][mk].find(b=>b.brand.toLowerCase()===name.toLowerCase()&&b.size===size)){
+    toast('Brand already exists for this size','err');return;
+  }
+  INV_DSR[invActiveOutlet][mk].push({brand:name,size,category:cat,openBal:open,received:recv,totalSold:0,balance:open+recv,mrp,daysInMonth:30});
+  toast('Added '+name,'ok');
+  await sbSaveInv();
+  closeStockModal();
+  renderInventory(invActiveOutlet);
+  refreshInvSlotUI(invActiveOutlet);
+}
+
 // ── Supabase save/load for inventory ──
 async function sbSaveInv(){
   const entries=[];
@@ -1737,7 +2164,101 @@ document.addEventListener('DOMContentLoaded',()=>{
   document.getElementById('pwdInput').focus();
 });
 </script>
-<script defer="" src="./Daaru Wala — Operations Dashboard_files/v833ccba57c9e4d2798f2e76cebdd09a11778172276447" integrity="sha512-57MDmcccJXYtNnH+ZiBwzC4jb2rvgVCEokYN+L/nLlmO8rfYT/gIpW2A569iJ/3b+0UEasghjuZH/ma3wIs/EQ==" data-cf-beacon="{&quot;version&quot;:&quot;2024.11.0&quot;,&quot;token&quot;:&quot;7f7b0fd8732c4326aae4b9d58d5c514a&quot;,&quot;server_timing&quot;:{&quot;name&quot;:{&quot;cfCacheStatus&quot;:true,&quot;cfEdge&quot;:true,&quot;cfExtPri&quot;:true,&quot;cfL4&quot;:true,&quot;cfOrigin&quot;:true,&quot;cfSpeedBrain&quot;:true},&quot;location_startswith&quot;:null}}" crossorigin="anonymous"></script>
+<!-- ITEM DETAIL MODAL -->
+<div id="itemModal" style="display:none;position:fixed;inset:0;background:rgba(10,14,26,.88);z-index:9999;backdrop-filter:blur(6px);align-items:flex-start;justify-content:center;padding:40px 20px;overflow-y:auto;" onclick="if(event.target===this)closeItemModal()">
+  <div style="background:var(--sf);border:1px solid var(--bd2);border-radius:16px;max-width:1000px;width:100%;padding:24px 28px;box-shadow:0 30px 80px rgba(0,0,0,.6);position:relative;" onclick="event.stopPropagation()">
+    <button onclick="closeItemModal()" style="position:absolute;top:14px;right:14px;background:var(--sf2);border:1px solid var(--bd);color:var(--mu2);width:32px;height:32px;border-radius:8px;cursor:pointer;font-size:14px;" data-testid="close-item-modal">✕</button>
+    <div id="itemModalBody"></div>
+  </div>
+</div>
+
+<!-- STOCK ADD/RECEIVE MODAL -->
+<div id="stockModal" style="display:none;position:fixed;inset:0;background:rgba(10,14,26,.88);z-index:9999;backdrop-filter:blur(6px);align-items:flex-start;justify-content:center;padding:60px 20px;overflow-y:auto;" onclick="if(event.target===this)closeStockModal()">
+  <div style="background:var(--sf);border:1px solid var(--bd2);border-radius:16px;max-width:560px;width:100%;padding:26px 30px;box-shadow:0 30px 80px rgba(0,0,0,.6);position:relative;" onclick="event.stopPropagation()">
+    <button onclick="closeStockModal()" style="position:absolute;top:14px;right:14px;background:var(--sf2);border:1px solid var(--bd);color:var(--mu2);width:32px;height:32px;border-radius:8px;cursor:pointer;font-size:14px;" data-testid="close-stock-modal">✕</button>
+    <div style="font-size:11px;color:var(--mu2);text-transform:uppercase;letter-spacing:1.2px;font-weight:700;">Stock Management</div>
+    <h2 style="font-size:20px;font-weight:800;margin-top:4px;" id="stockModalTitle">Receive Stock</h2>
+    <div style="font-size:12px;color:var(--mu2);margin-top:4px;" id="stockOutletLbl">—</div>
+
+    <div class="ltabs" style="margin-top:18px;">
+      <button class="ltab active" onclick="setStockMode(&#39;receive&#39;,this)" data-testid="stock-tab-receive">📥 Receive Existing</button>
+      <button class="ltab" onclick="setStockMode(&#39;new&#39;,this)" data-testid="stock-tab-new">✨ Add New Brand</button>
+    </div>
+
+    <!-- Receive Existing -->
+    <div id="stockReceiveForm" style="margin-top:16px;">
+      <div class="form-group">
+        <label class="form-label">Brand</label>
+        <select class="form-input" id="stockBrandSelect" data-testid="stock-brand-select"></select>
+      </div>
+      <div class="form-group">
+        <label class="form-label">Quantity Received</label>
+        <input type="number" min="1" step="1" class="form-input" id="stockReceiveQty" placeholder="e.g. 24" data-testid="stock-receive-qty">
+      </div>
+      <button class="login-btn" onclick="receiveStockSubmit()" data-testid="stock-receive-submit">➕ ADD TO STOCK</button>
+    </div>
+
+    <!-- New Brand -->
+    <div id="stockNewForm" style="display:none;margin-top:16px;">
+      <div class="form-group">
+        <label class="form-label">Brand Name</label>
+        <input type="text" class="form-input" id="newBrandName" placeholder="e.g. Johnnie Walker Black" data-testid="new-brand-name">
+      </div>
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;">
+        <div class="form-group">
+          <label class="form-label">Size (ml)</label>
+          <input type="number" min="0" class="form-input" id="newBrandSize" placeholder="e.g. 60 / 180 / 650" data-testid="new-brand-size">
+        </div>
+        <div class="form-group">
+          <label class="form-label">Category</label>
+          <select class="form-input" id="newBrandCat" data-testid="new-brand-cat">
+            <option>WHISKY</option><option>VODKA</option><option>RUM</option><option>BEER</option><option>GIN</option><option>TEQUILA</option><option>BRANDY</option><option>WINE</option>
+          </select>
+        </div>
+      </div>
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;">
+        <div class="form-group">
+          <label class="form-label">MRP (₹)</label>
+          <input type="number" min="0" step="any" class="form-input" id="newBrandMrp" placeholder="e.g. 450" data-testid="new-brand-mrp">
+        </div>
+        <div class="form-group">
+          <label class="form-label">Opening Balance</label>
+          <input type="number" min="0" class="form-input" id="newBrandOpen" placeholder="e.g. 24" data-testid="new-brand-open">
+        </div>
+      </div>
+      <div class="form-group">
+        <label class="form-label">Received Now (optional)</label>
+        <input type="number" min="0" class="form-input" id="newBrandReceived" placeholder="0" data-testid="new-brand-received">
+      </div>
+      <button class="login-btn" onclick="addNewBrandSubmit()" data-testid="new-brand-submit">✨ ADD BRAND</button>
+    </div>
+  </div>
+</div>
+
+<!-- P&L MONTH PICKER MODAL -->
+<div id="plMonthModal" style="display:none;position:fixed;inset:0;background:rgba(10,14,26,.88);z-index:9999;backdrop-filter:blur(6px);align-items:flex-start;justify-content:center;padding:80px 20px;" onclick="if(event.target===this)closePlMonthModal()">
+  <div style="background:var(--sf);border:1px solid var(--bd2);border-radius:16px;max-width:480px;width:100%;padding:26px 30px;box-shadow:0 30px 80px rgba(0,0,0,.6);position:relative;" onclick="event.stopPropagation()">
+    <button onclick="closePlMonthModal()" style="position:absolute;top:14px;right:14px;background:var(--sf2);border:1px solid var(--bd);color:var(--mu2);width:32px;height:32px;border-radius:8px;cursor:pointer;font-size:14px;">✕</button>
+    <div style="font-size:11px;color:var(--mu2);text-transform:uppercase;letter-spacing:1.2px;font-weight:700;">P&amp;L Upload</div>
+    <h2 style="font-size:20px;font-weight:800;margin-top:4px;">Which month is this P&amp;L for?</h2>
+    <div style="font-size:12px;color:var(--mu2);margin-top:6px;" id="plMonthFileInfo">—</div>
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-top:18px;">
+      <div class="form-group">
+        <label class="form-label">Year</label>
+        <select class="form-input" id="plYearSel" data-testid="pl-year-sel"></select>
+      </div>
+      <div class="form-group">
+        <label class="form-label">Month</label>
+        <select class="form-input" id="plMonthSel" data-testid="pl-month-sel">
+          <option value="01">January</option><option value="02">February</option><option value="03">March</option><option value="04">April</option><option value="05">May</option><option value="06">June</option><option value="07">July</option><option value="08">August</option><option value="09">September</option><option value="10">October</option><option value="11">November</option><option value="12">December</option>
+        </select>
+      </div>
+    </div>
+    <button class="login-btn" onclick="confirmPlUpload()" data-testid="pl-confirm-btn">✓ SAVE P&amp;L FOR THIS MONTH</button>
+  </div>
+</div>
+
+<script defer="" src="./index_files/v833ccba57c9e4d2798f2e76cebdd09a11778172276447" integrity="sha512-57MDmcccJXYtNnH+ZiBwzC4jb2rvgVCEokYN+L/nLlmO8rfYT/gIpW2A569iJ/3b+0UEasghjuZH/ma3wIs/EQ==" data-cf-beacon="{&quot;version&quot;:&quot;2024.11.0&quot;,&quot;token&quot;:&quot;7f7b0fd8732c4326aae4b9d58d5c514a&quot;,&quot;server_timing&quot;:{&quot;name&quot;:{&quot;cfCacheStatus&quot;:true,&quot;cfEdge&quot;:true,&quot;cfExtPri&quot;:true,&quot;cfL4&quot;:true,&quot;cfOrigin&quot;:true,&quot;cfSpeedBrain&quot;:true},&quot;location_startswith&quot;:null}}" crossorigin="anonymous"></script>
 
 
-<div id="_toast" class="toast ok" style="opacity: 0; transform: translateY(8px);">✅ Removed</div></body></html>
+</body></html>
