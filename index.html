@@ -3165,11 +3165,11 @@ function loadPLFile(inp){
   if(typeof XLSX==='undefined'){alert('Excel library failed to load. Refresh the page (internet needed once) and try again.');return;}
 
   // Check if outlet is selected
-  const plOutletSel=document.getElementById('plOutletSel');
-  const selectedOutletId=plOutletSel?plOutletSel.value:'';
+  const plUpSel=document.getElementById('plUploadOutletSel');
+  const selectedOutletId=plUpSel?plUpSel.value:'';
   if(!selectedOutletId){
     toast('Please select an outlet before uploading P&L','err');
-    if(plOutletSel) plOutletSel.focus();
+    if(plUpSel) plUpSel.focus();
     inp.value='';
     return;
   }
