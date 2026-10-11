@@ -2927,6 +2927,10 @@ let OUTLETS=[
   {id:'mayurvihar',name:'Mayur Vihar',icon:'🍷',color:'#ff4d8d'},
   {id:'mayapuri',name:'Mayapuri',icon:'🥂',color:'#2a86ff'},
   {id:'paschimvihar',name:'Paschim Vihar',icon:'🍾',color:'#26d782'},
+  {id:'subhashnagar',name:'Subhash Nagar',icon:'🏪',color:'#ffd24d'},
+  {id:'nirmanvihar',name:'Nirman Vihar',icon:'🍸',color:'#ff5722'},
+  {id:'uttamnagar',name:'Uttam Nagar',icon:'🍹',color:'#00bcd4'},
+  {id:'netajisubhashplace',name:'NSP (Netaji Subhash Place)',icon:'🥤',color:'#a3e635'},
 ];
 // ── Custom outlets added via the UI (persisted on this device) ──
 const BUILTIN_OUTLET_IDS=OUTLETS.map(o=>o.id);
@@ -5390,12 +5394,12 @@ function populateUploadSelectors(){
   const plSel=document.getElementById('plOutletSel');
   if(plSel){
     plSel.innerHTML='<option value="ALL">All Outlets Combined</option>'+
-      PL_OUTLETS_ORDER.map(o=>'<option value="'+o+'">'+PL_OUTLET_ICONS[o]+' '+_plOutletLabel(o)+'</option>').join('');
+      OUTLETS.map(o=>'<option value="'+o.id+'">'+o.icon+' '+_esc(o.name)+'</option>').join('');
   }
   const plUpSel=document.getElementById('plUploadOutletSel');
   if(plUpSel){
     plUpSel.innerHTML='<option value="">-- Select Outlet --</option>'+
-      PL_OUTLETS_ORDER.map(o=>'<option value="'+o+'">'+PL_OUTLET_ICONS[o]+' '+_plOutletLabel(o)+'</option>').join('');
+      OUTLETS.map(o=>'<option value="'+o.id+'">'+o.icon+' '+_esc(o.name)+'</option>').join('');
   }
 }
 
@@ -14894,7 +14898,7 @@ const MASTER_ITEM_MAP={
 //
 // MASTER_BY_OUTLET is rebuilt from the same source, preserving EVERY
 // definition and indexing it by the outlet that owns it.
-const _MASTER_PREFIX_OUTLET={DW:'dwarka',JAN:'janakpuri',OKH:'okhla',MAY:'mayapuri',PAS:'paschimvihar',MV:'mayurvihar',SN:'subhashnagar'};
+const _MASTER_PREFIX_OUTLET={DW:'dwarka',JAN:'janakpuri',OKH:'okhla',MAY:'mayapuri',PAS:'paschimvihar',MV:'mayurvihar',SN:'subhashnagar',NV:'nirmanvihar',UN:'uttamnagar',NSP:'netajisubhashplace'};
 const MASTER_BY_OUTLET={};   // outletId -> { key: entry }
 const MASTER_GENERIC={};     // entries with a non-outlet code prefix (W-, B-, G-, ...)
 
@@ -23528,7 +23532,10 @@ function _aiOutlet(q){
     janakpuri: ['janakpuri', 'janak puri', 'jp'],
     mayapuri: ['mayapuri', 'maya puri', 'mp'],
     okhla: ['okhla', 'okhla phase 1'],
-    mayurvihar: ['mayur vihar', 'mayur', 'mv']
+    mayurvihar: ['mayur vihar', 'mayur', 'mv'],
+    nirmanvihar: ['nirman vihar', 'nirmanvihar'],
+    uttamnagar: ['uttam nagar', 'uttamnagar'],
+    netajisubhashplace: ['netaji subhash place', 'netaji subhash', ' nsp', 'nsp ']
   };
   for (const [id, terms] of Object.entries(aliases)) {
     if (terms.some(t => ql.includes(t))) return OUTLETS.find(o => o.id === id);
@@ -23673,6 +23680,9 @@ const _AI_OUTLET_ALIASES={
   mayapuri:['mayapuri','maya puri','mp'],
   mayurvihar:['mayur vihar','mayur','mv','mayurvihar'],
   okhla:['okhla','okhla phase 1','okhla outlet'],
+  nirmanvihar:['nirman vihar','nirmanvihar'],
+  uttamnagar:['uttam nagar','uttamnagar'],
+  netajisubhashplace:['netaji subhash place','netaji subhash',' nsp','nsp '],
 };
 function _aiLev(a,b){ // tiny levenshtein for fuzzy outlet match
   if(a===b)return 0;const al=a.length,bl=b.length;if(!al)return bl;if(!bl)return al;
