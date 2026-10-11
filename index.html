@@ -1148,6 +1148,7 @@ html,body{font-family:var(--ui);letter-spacing:.1px;}
     </div>
 
     <div id="pl2StatusBanner"></div>
+    <div id="pl2BookBar"></div>
 
     <div class="otabs" id="pl2TabBar" style="margin:10px 0;">
       <button class="otab active" data-tab="overview" onclick="_pl2SwitchTab('overview')">Overview</button>
@@ -6126,7 +6127,7 @@ function dmRemove(type,id){
   else if(type==='pl'){
     if(!confirm('Remove P&L data for this outlet?'))return;
     delete PL_UPLOADED[id];
-    sbSavePL().then(()=>toast('P&L removed','ok'));
+    sbReq('pl_uploaded?outlet_id=eq.'+encodeURIComponent(id),'DELETE').then(()=>toast('P&L removed','ok')).catch(e=>toast('Cloud remove failed: '+e.message,'err'));
     refreshExpSlotPL();updateDmGrid();buildPLPage();
   }
 }
@@ -8521,8 +8522,9 @@ async function confirmPlUpload(){
   });
   const outletNames=Object.keys(_pendingPLData.sheets).map(k=>OUTLETS.find(o=>o.id===k)?.name||k).join(', ');
   toast('P&L saved for '+outletNames+' · '+monthLabel(mk),'ok');
+  const savedPairs=Object.keys(_pendingPLData.sheets).map(oid=>[oid,mk]);
   closePlMonthModal();
-  await sbSavePL();
+  await sbSavePL(savedPairs);
   refreshExpSlotPL();
   buildPLPage();
 }
@@ -8548,30 +8550,24 @@ function refreshExpSlotPL(){
 }
 
 // ── Supabase save/load for P&L ──
-async function sbSavePL(){
-  const entries=[];
-  Object.keys(PL_UPLOADED).forEach(oid=>{
-    Object.keys(PL_UPLOADED[oid]).forEach(mk=>{
-      Object.entries(PL_UPLOADED[oid][mk]).forEach(([item,val])=>{
-        entries.push({outlet_id:oid,month:mk,line_item:item,value:val});
-      });
-    });
-  });
-  
-  if(!entries.length) return;
-  
+// Saves P&L statements one outlet+month at a time: the new rows are written
+// first and only then are that statement's old rows removed. The previous
+// version deleted EVERY P&L row in the cloud before re-inserting, so one failed
+// insert (or saving before the cloud copy had loaded) wiped all history.
+// `only` = [[outletId, monthKey], ...] limits the save to those statements.
+async function sbSavePL(only){
+  const pairs = only || Object.keys(PL_UPLOADED).flatMap(oid=>Object.keys(PL_UPLOADED[oid]||{}).map(mk=>[oid,mk]));
+  if(!pairs.length) return;
+
   try {
     toast('Saving P&L to cloud...', 'info');
-    
-    // Clear existing data to prevent duplicates
-    await sbReq('pl_uploaded?id=gt.0', 'DELETE');
-    
-    // Batch upload in chunks of 500
-    for(let i=0; i<entries.length; i+=500){
-      const chunk = entries.slice(i, i+500);
-      await sbReq('pl_uploaded', 'POST', chunk);
+    for(const [oid,mk] of pairs){
+      const rows=Object.entries((PL_UPLOADED[oid]||{})[mk]||{}).map(([item,val])=>({outlet_id:oid,month:mk,line_item:item,value:+val||0}));
+      const old=await sbReq('pl_uploaded?select=id&outlet_id=eq.'+encodeURIComponent(oid)+'&month=eq.'+encodeURIComponent(mk));
+      for(let i=0; i<rows.length; i+=500) await sbReq('pl_uploaded', 'POST', rows.slice(i, i+500));
+      const oldIds=(old||[]).map(r=>r.id);
+      for(let i=0; i<oldIds.length; i+=200) await sbReq('pl_uploaded?id=in.('+oldIds.slice(i, i+200).join(',')+')', 'DELETE');
     }
-    
     toast('P&L cloud sync complete', 'ok');
   } catch(e) {
     console.error('P&L save failed:', e);
@@ -8609,8 +8605,18 @@ function _alertCreateTable(){
 
 // Hardcoded P&L data extracted from the uploaded Excel
 // Months: Oct25, Nov25, Dec25, Jan26, Feb26, Mar26, Apr26, May26
-const PL_MONTHS = ['2025-10','2025-11','2025-12','2026-01','2026-02','2026-03','2026-04','2026-05','2026-06'];
-const PL_MONTH_LABELS = ['Oct 25','Nov 25','Dec 25','Jan 26','Feb 26','Mar 26','Apr 26','May 26','Jun 26'];
+// Months the hardcoded Excel history (PL_DATA) covers; its arrays are indexed by this list.
+const PL_BASE_MONTHS = ['2025-10','2025-11','2025-12','2026-01','2026-02','2026-03','2026-04','2026-05','2026-06'];
+// Months shown on the P&L page = the Excel history plus every uploaded or booked
+// month, rebuilt on each render so a month booked from P&L Live appears straight away.
+let PL_MONTHS = PL_BASE_MONTHS.slice();
+let PL_MONTH_LABELS = PL_MONTHS.map(monthLabel);
+function _plRefreshMonths(){
+  const set=new Set(PL_BASE_MONTHS);
+  Object.values(PL_UPLOADED).forEach(m=>Object.keys(m||{}).forEach(mk=>{ if(/^\d{4}-\d{2}$/.test(mk)) set.add(mk); }));
+  PL_MONTHS=[...set].sort();
+  PL_MONTH_LABELS=PL_MONTHS.map(monthLabel);
+}
 
 const PL_MAP = {
   'salesFood':   [/^Sales - Food/i, /Act Food Sales/i, /Food Sales/i],
@@ -8643,7 +8649,7 @@ const PL_MAP = {
 };
 
 const PL_DATA = {
-  'MAYAPURI': {
+  'mayapuri': {
     salesFood:     [140117,147084,162632,132698,134610,150901,210693,0],
     salesBev:      [18087, 21000, 25882, 23879, 20252, 26456, 26638, 0],
     salesHookah:   [0,0,1198,0,0,0,0,0],
@@ -8666,7 +8672,7 @@ const PL_DATA = {
     otherOpCost:   [0,0,0,0,0,0,0,0],
     otherVarOp:    [0,0,0,0,0,0,0,0],
   },
-  'PASHCHIM VIHAR': {
+  'paschimvihar': {
     salesFood:     [145559,132675,137139,129968,120346,155678,215434,210528],
     salesBev:      [30340,30084,29897,24271,20841,25664,36542,27186],
     salesHookah:   [32846,29019,23856,22142,16974,25799,46275,27801],
@@ -8689,7 +8695,7 @@ const PL_DATA = {
     otherOpCost:   [0,0,0,0,0,0,0,0],
     otherVarOp:    [2000,2000,2000,2000,2000,2000,2000,2000],
   },
-  'MAYUR VIHAR': {
+  'mayurvihar': {
     salesFood:     [0,0,227460,187636,148663,180215,302637,433117],
     salesBev:      [0,0,30323,33627,21760,28049,38673,59716],
     salesHookah:   [0,0,0,0,0,0,0,0],
@@ -8725,7 +8731,7 @@ const _plOutletLabel = oid => { const o=OUTLETS.find(x=>x.id===oid); return o?o.
 
 function _plGetData(outletFilter){
   // De-duplicate the outlet list so the same outlet can never be summed twice.
-  const rawOutlets = outletFilter==='ALL' ? PL_OUTLETS_ORDER : [outletFilter];
+  const rawOutlets = outletFilter==='ALL' ? OUTLETS.map(o=>o.id) : [outletFilter];
   const outlets = [...new Set(rawOutlets)];
   const keys = ['salesFood','salesBev','salesHookah','salesLiquor','salesTotal',
     'cogFood','cogBev','cogLiquor','cogHookah','staffFood',
@@ -8733,9 +8739,6 @@ function _plGetData(outletFilter){
     'staffSalary','corpSalary','licFees','pestControl','otherOpCost','otherVarOp',
     'sheetTotalOpCost','sheetEbitda'];
 
-  // Is there ANY uploaded P&L at all? If so we ignore the hardcoded demo PL_DATA
-  // entirely, so real numbers are never mixed with / doubled by sample data.
-  const anyUploaded = Object.keys(PL_UPLOADED).length > 0;
 
   const agg = {};
   keys.forEach(k => {
@@ -8755,9 +8758,12 @@ function _plGetData(outletFilter){
             }
             if(matched) break;
           }
-        } else if(!anyUploaded && PL_DATA[oid] && PL_DATA[oid][k]) {
-          // Demo fallback ONLY when nothing at all has been uploaded.
-          val = PL_DATA[oid][k][i] || 0;
+        } else if(PL_DATA[oid] && PL_DATA[oid][k]) {
+          // No uploaded/booked statement for this outlet+month: use the Excel
+          // history for it, if that month is in it. Uploaded or booked always wins,
+          // per outlet and month, so the two are never added together.
+          const bi = PL_BASE_MONTHS.indexOf(mk);
+          val = bi>=0 ? (PL_DATA[oid][k][bi] || 0) : 0;
         }
         return s + val;
       }, 0);
@@ -8803,6 +8809,7 @@ function _plPopulateOutletSel(){
 }
 
 function buildPLPage(){
+  _plRefreshMonths();
   const plSel = document.getElementById('plOutletSel');
   if(plSel && plSel.options.length <= 1) populateUploadSelectors();
 
@@ -9366,9 +9373,11 @@ function _pl2AmountFor(item, mk){
   return list.length?list[list.length-1].amount:0;
 }
 
-// ── Liquor cost basis: prefer real WSR (purchase cost) from an uploaded
-// manager stock report over assuming MRP = cost. MRP is the retail/selling
-// price, not what was paid — using it directly would overstate cost. ──
+// ── Liquor cost basis: bars buy at MRP, so MRP × bottles sold is the real
+// cost (about 50% of bar sales, matching the accountant's Excel P&L). WSR in
+// the manager stock report is the pre-duty wholesale rate (~25% of MRP) and
+// must NOT be used as cost: it made liquor cost ~11% of bar sales and inflated
+// profit, and mixed WSR brands with MRP brands in the same month. ──
 // Liquor Cost = Σ (brand MRP × qty sold this month), computed straight from
 // the outlet's own Inventory DSR register + actual POS sales — not a fixed
 // target % of sales. This is now the primary method; a manual override still
@@ -9416,6 +9425,7 @@ function _pl2Compute(outletFilter, mk, override){
   outletIds.forEach(oid=>(PL2_COST_MASTER[oid]||[]).filter(c=>c.active).forEach(c=>masterCatNames.add(c.category.trim().toLowerCase())));
 
   let foodPurchases=0, liquorPurchases=0, gasExpense=0, otherOpExpense=0, excludedTotal=0;
+  const foodPurchasesByOutlet={};
   const otherOpBreakdown={};
   let fixedLedgerTotal=0; const fixedLedgerBreakdown={};
   outletIds.forEach(oid=>FIN_EXP.filter(e=>e.outlet_id===oid).forEach(e=>{
@@ -9424,7 +9434,7 @@ function _pl2Compute(outletFilter, mk, override){
     const amt=+e.amount||0;
     const bucket=_pl2BucketFor(e.category);
     if(bucket==='exclude'){ excludedTotal+=amt; return; }
-    if(bucket==='food'){ foodPurchases+=amt; return; }
+    if(bucket==='food'){ foodPurchases+=amt; foodPurchasesByOutlet[oid]=(foodPurchasesByOutlet[oid]||0)+amt; return; }
     if(bucket==='liquor'){ liquorPurchases+=amt; return; }   // real spend from the ledger
     if(bucket==='gas'){ gasExpense+=amt; return; }
     if(masterCatNames.has((e.category||'').trim().toLowerCase())) return; // already counted via Cost Master accrual
@@ -9453,20 +9463,40 @@ function _pl2Compute(outletFilter, mk, override){
   const foodPct=_pl2GetFoodPct(outletIds[0], mk); // representative, shown only when a single outlet is selected
   const estFoodCost=outletIds.reduce((s,oid)=>s+(foodSalesByOutlet[oid]||0)*(_pl2GetFoodPct(oid,mk)/100), 0);
   const estFoodBalance=foodPurchases-estFoodCost;
-  let actualFoodClosing=null;
-  outletIds.forEach(oid=>{ const v=(PL2_FOOD_ACTUALS[oid]&&PL2_FOOD_ACTUALS[oid][mk]); if(v!=null) actualFoodClosing=(actualFoodClosing||0)+(+v||0); });
-  const actualFoodCost = actualFoodClosing!=null ? (foodPurchases-actualFoodClosing) : null;
-  const effFoodCost = actualFoodCost!=null ? actualFoodCost : estFoodCost;
+  // Actual food cost (purchases − actual closing stock) replaces the target-%
+  // estimate only for the outlets that entered a closing stock; the rest keep
+  // their estimate. Previously, with All Outlets selected, one outlet's closing
+  // stock was netted against EVERY outlet's purchases and replaced everyone's
+  // estimate.
+  let actualFoodClosing=null, effFoodCost=0, allFoodActual=true;
+  outletIds.forEach(oid=>{
+    const v=(PL2_FOOD_ACTUALS[oid]&&PL2_FOOD_ACTUALS[oid][mk]);
+    if(v!=null){
+      actualFoodClosing=(actualFoodClosing||0)+(+v||0);
+      effFoodCost+=(foodPurchasesByOutlet[oid]||0)-(+v||0);
+    } else {
+      allFoodActual=false;
+      effFoodCost+=(foodSalesByOutlet[oid]||0)*(_pl2GetFoodPct(oid,mk)/100);
+    }
+  });
+  const actualFoodCost = (actualFoodClosing!=null && allFoodActual) ? effFoodCost : null;
   const effFoodCostPct = salesFood? effFoodCost/salesFood*100 : 0;
 
   // Liquor cost — computed from the outlet's own Inventory DSR: MRP × qty
   // sold this month (via actual POS sales matched to the register), not a
   // fixed target % of sales. A manual override still exists per outlet/month
   // for when a known variance needs correcting.
+  // A manual override replaces the computed cost for ITS outlet only. Before,
+  // with All Outlets selected, one outlet's override replaced the liquor cost of
+  // every outlet (Sep 26: a ₹4.0L override wiped ~₹38L of liquor cost and showed
+  // ₹44L profit instead of ₹5.9L).
   const liquorBasis=_pl2LiquorCostFromInv(outletIds, mk);
-  let liquorOverride=null;
-  outletIds.forEach(oid=>{ const v=(PL2_LIQUOR_ACTUALS[oid]&&PL2_LIQUOR_ACTUALS[oid][mk]); if(v!=null) liquorOverride=(liquorOverride||0)+(+v||0); });
-  const liquorCost = liquorOverride!=null ? liquorOverride : liquorBasis.cost;
+  let liquorOverride=null, liquorCost=0;
+  outletIds.forEach(oid=>{
+    const v=(PL2_LIQUOR_ACTUALS[oid]&&PL2_LIQUOR_ACTUALS[oid][mk]);
+    if(v!=null){ liquorOverride=(liquorOverride||0)+(+v||0); liquorCost+=(+v||0); }
+    else liquorCost+=_pl2LiquorCostFromInv([oid], mk).cost;
+  });
   const liquorCostPct = salesLiquor? liquorCost/salesLiquor*100 : 0;
 
   // Monthly Cost Master → daily accrual
@@ -9560,6 +9590,102 @@ function _pl2Safe(label, fn){
   catch(e){ console.error('[PL2] '+label+' failed:', e); }
 }
 
+// ════════════════════════════════════════════════════════════
+// BOOK PROFIT — P&L Live → P&L page
+// ════════════════════════════════════════════════════════════
+// Booking turns one month of P&L Live into a statement on the P&L page, one per
+// outlet, written as the same line items an uploaded P&L Excel uses. The
+// month's EBITDA on the P&L page is exactly the Live profit, so the two pages
+// can never disagree. A completed month is accrued through its last day so
+// fixed costs count in full. Re-booking replaces that month's statement.
+const PL_BOOKED_KEY='__booked_at';
+function _plIsBooked(oid, mk){ return !!(PL_UPLOADED[oid]&&PL_UPLOADED[oid][mk]&&PL_UPLOADED[oid][mk][PL_BOOKED_KEY]); }
+function _plBookedOutlets(mk){ return OUTLETS.filter(o=>_plIsBooked(o.id, mk)); }
+function _pl2MonthEnd(mk){ const [y,m]=mk.split('-').map(Number); return dtKey(new Date(y,m,0)); }
+
+// Statement line items for one outlet+month, from the same numbers P&L Live shows.
+function _pl2BookItems(oid, mk){
+  const nowMk=monthKey(new Date());
+  const r=_pl2Compute(oid, mk, mk<nowMk ? _pl2MonthEnd(mk) : null);
+  // Other OpEx holds beverage and charcoal purchases; split them out so they
+  // land on their own P&L lines. The total is unchanged.
+  let bev=0, charcoal=0;
+  Object.entries(r.otherOpBreakdown||{}).forEach(([cat,amt])=>{
+    const b=typeof finCatToBucket==='function'?finCatToBucket((cat||'').toLowerCase()):'';
+    if(b==='beverage') bev+=amt; else if(b==='charcoal'||b==='hookah') charcoal+=amt;
+  });
+  const fixed={rent:0, elec:0, staff:0, lic:0, other:0};
+  r.costRows.forEach(c=>{
+    const k=(c.category||'').toLowerCase();
+    if(/\brent\b|\bcam\b/.test(k)) fixed.rent+=c.mtd;
+    else if(/electric|power/.test(k)) fixed.elec+=c.mtd;
+    else if(/salary|salaries|wage|staff|security|bouncer|personnel/.test(k)) fixed.staff+=c.mtd;
+    else if(/licen[cs]e/.test(k)) fixed.lic+=c.mtd;
+    else fixed.other+=c.mtd;
+  });
+  const otherVar=r.otherOpExpense-bev-charcoal;
+  const totalOp=r.effFoodCost+bev+r.liquorCost+r.gasExpense+charcoal+fixed.rent+fixed.elec+fixed.staff+fixed.lic+fixed.other+otherVar;
+  const R=v=>Math.round(v||0);
+  const items={
+    'Sales - Food':R(r.salesFood), 'Sales - Beverage':R(r.salesBev), 'Hookah Sales':R(r.salesHookah),
+    'Sales - Liquor':R(r.salesLiquor), 'Sales - Total':R(r.salesTotal),
+    'Food Cost - COGS':R(r.effFoodCost), 'Beverage Cost - COGS':R(bev), 'Liquor Cost - COGS':R(r.liquorCost),
+    'Gas Cost':R(r.gasExpense), 'Charcoal Cost':R(charcoal),
+    'Total Other Income':R(r.scrapSale+r.otherIncome),
+    'Total Rent Cost':R(fixed.rent), 'Total Electricity Cost':R(fixed.elec), 'Total Personnel Cost':R(fixed.staff),
+    'License Fees':R(fixed.lic), 'Other Fixed Operating Cost':R(fixed.other), 'Total Other Variable Operating':R(otherVar),
+    'Total Operating Cost':R(totalOp), 'EBITDA - at Outlet level':R(r.liveProfit)
+  };
+  // Things that would make this month's profit wrong, shown before booking
+  const warn=[];
+  const lastSale=_pl2AccrualThroughDate([oid], mk, null);
+  if(r.salesTotal<=0) warn.push('no sales uploaded');
+  else if(mk<nowMk && lastSale && lastSale<_pl2MonthEnd(mk)) warn.push('sales only up to '+fD(lastSale));
+  if(r.salesLiquor>0 && r.liquorCost<=0) warn.push('liquor cost is 0 (no stock register for this month)');
+  else if(r.salesLiquor>0 && (r.liquorCost/r.salesLiquor<0.3 || r.liquorCost/r.salesLiquor>0.75)) warn.push('liquor cost '+Math.round(r.liquorCost/r.salesLiquor*100)+'% of liquor sales, check stock register');
+  if(!r.costRows.length) warn.push('no fixed costs in Cost Master, rent/salary not deducted');
+  if(r.actualFoodCost==null) warn.push('food cost at target '+r.foodPct+'% (no actual closing stock)');
+  return {items, r, warn};
+}
+
+function _pl2RenderBookBar(mk){
+  const el=document.getElementById('pl2BookBar'); if(!el) return;
+  const booked=_plBookedOutlets(mk);
+  const at=booked.length?Math.max(...booked.map(o=>+PL_UPLOADED[o.id][mk][PL_BOOKED_KEY]||0)):0;
+  const canBook=role==='admin';
+  el.innerHTML=`<div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:10px;border:1px solid var(--bd);background:var(--sf);border-radius:12px;padding:10px 14px;margin:10px 0;">
+    <div style="font-size:12.5px;">${booked.length
+      ? `<b style="color:#26d782">✓ ${monthLabel(mk)} booked</b> to the P&amp;L page for ${booked.length} of ${OUTLETS.length} outlets<span style="color:var(--mu2)"> · ${new Date(at).toLocaleString('en-IN',{day:'2-digit',month:'short',hour:'2-digit',minute:'2-digit'})}</span>`
+      : `<b>${monthLabel(mk)} not booked yet.</b> <span style="color:var(--mu2)">Book it to put this month on the P&amp;L page.</span>`}</div>
+    ${canBook?`<button onclick="pl2BookProfit()" style="background:#26d782;border:none;color:#06140c;padding:9px 16px;border-radius:9px;font-family:inherit;font-size:12.5px;font-weight:800;cursor:pointer;">📘 ${booked.length?'Re-book':'Book profit for'} ${monthLabel(mk)}</button>`:''}
+  </div>`;
+}
+
+async function pl2BookProfit(){
+  if(role!=='admin'){ toast('Only an admin can book profit','err'); return; }
+  const mk=document.getElementById('pl2MonthSel')?.value||monthKey(new Date());
+  const nowMk=monthKey(new Date());
+  if(mk>nowMk){ toast('Cannot book a future month','err'); return; }
+  const rows=OUTLETS.map(o=>({o, ...(_pl2BookItems(o.id, mk))})).filter(x=>x.r.salesTotal>0);
+  if(!rows.length){ toast('No sales in '+monthLabel(mk)+', nothing to book','err'); return; }
+  const total=rows.reduce((s,x)=>s+x.r.liveProfit,0);
+  const lines=rows.map(x=>'• '+x.o.name+': '+fF(x.r.liveProfit)+(x.warn.length?'  ⚠ '+x.warn.join('; '):'')).join('\n');
+  const skipped=OUTLETS.filter(o=>!rows.some(x=>x.o.id===o.id)).map(o=>o.name);
+  const msg=(mk===nowMk?'⚠ '+monthLabel(mk)+' is not finished, so this books the month-to-date figures. Re-book after month end.\n\n':'')
+    +'Book '+monthLabel(mk)+' to the P&L page?\n\n'+lines+'\n\nTotal profit: '+fF(total)
+    +(skipped.length?'\n\nNo sales, not booked: '+skipped.join(', '):'')
+    +(rows.some(x=>_plIsBooked(x.o.id,mk))?'\n\nThis replaces the earlier booking for this month.':'');
+  if(!confirm(msg)) return;
+  const at=Date.now();
+  rows.forEach(x=>{ if(!PL_UPLOADED[x.o.id]) PL_UPLOADED[x.o.id]={}; PL_UPLOADED[x.o.id][mk]={...x.items, [PL_BOOKED_KEY]:at}; });
+  showLoad('Booking '+monthLabel(mk)+'…');
+  try{ await sbSavePL(rows.map(x=>[x.o.id, mk])); }
+  finally{ hideLoad(); }
+  toast(monthLabel(mk)+' booked: '+fF(total)+' profit','ok');
+  _pl2RenderBookBar(mk);
+  if(typeof refreshExpSlotPL==='function') refreshExpSlotPL();
+}
+
 function buildPL2Page(){
   _pl2PopulateSelectors();
   const outletFilter=document.getElementById('pl2OutletSel')?.value||'ALL';
@@ -9575,6 +9701,7 @@ function buildPL2Page(){
     return;
   }
   _pl2LastCompute={outletFilter, mk, r};
+  _pl2Safe('book bar', ()=>_pl2RenderBookBar(mk));
 
   _pl2Safe('status banner', ()=>{
     const statusMeta={FINAL:{color:'#26d782',icon:'✓',label:'FINAL'},PROVISIONAL:{color:'#ffb020',icon:'◐',label:'PROVISIONAL'},'LIVE ESTIMATE':{color:'#7c5cf5',icon:'●',label:'LIVE ESTIMATE'}}[r.pageStatus]||{color:'#7c5cf5',icon:'●',label:r.pageStatus};
@@ -18299,13 +18426,13 @@ function buildReportsExpenseSelectors(){
 // as distinct columns.
 function _expTrackerCol(category){
   const c=(category||'').toLowerCase();
-  if(c.includes('non veg')||c.includes('nonveg')||c.includes('non-veg')) return 'nonveg';
-  if(c.includes('veg')) return 'veg';
-  if(c.includes('dairy')) return 'dairy';
+  if(typeof PL2_LIQUOR_RX!=='undefined'&&PL2_LIQUOR_RX.test(c)) return 'liquor';
+  if(/non\s*-?\s*veg|chicken|mutton|meat|fish|seafood|eggs?/.test(c)) return 'nonveg';
+  if(/dairy|milk|curd|butter|cheese|paneer|cream/.test(c)) return 'dairy';
+  if(/vegetable|sabzi|mandi|\bveg\b/.test(c)) return 'veg';
   if(c.includes('convince')||c.includes('conveyance')||c.includes('convyance')||c.includes('convance')) return 'convince';
-  if(c.includes('grocery')||c.includes('grossary')||c.includes('grocary')) return 'grocery';
-  if(c.includes('liquor')||c.includes('beer')) return 'liquor';
-  if(c.includes('transport')||c.includes('local purch')||c.includes('cartage')||c.includes('freight')) return 'localpurch';
+  if(/local\s*purch|transport|cartage|freight|market purchase/.test(c)) return 'localpurch';
+  if(/grocery|grossary|grocary|atta|flour|rice\b|oil\b|spice|masala|sauce|provision|raw material|food purchase/.test(c)) return 'grocery';
   if(c.includes('maintenance')||c.includes('repair')||c.includes('rent')||c.includes('electric')||c.includes('salary')||c.includes('marketing')||c.includes('clean')) return 'maintenance';
   if(c.includes('hookah')||c.includes('hukka')) return 'hookah';
   if(c.includes('gas')||c.includes('lpg')) return 'gas';
