@@ -4776,12 +4776,13 @@ async function sbLoad(){
     try{ await _outletsCloudSync(); }catch(e){console.error('[sbLoad] outlets failed:',e.message);}
 
     // ── Sales — load per outlet ──
-    let totalSalesLoaded=0;
-    for(const outlet of OUTLETS){
+    let totalSalesLoaded=0, outletsDone=0;
+    showLoad('Loading sales for '+OUTLETS.length+' outlets…');
+    // all outlets load at the same time (loadOutletRows caps pages in flight)
+    await Promise.all(OUTLETS.map(async outlet=>{
       try{
-        showLoad('Loading '+outlet.name+'…');
-        // No limit param — rely on Range header in sbReq + per-outlet filter
         const rows=await loadOutletRows(outlet.id);
+        showLoad('Loaded '+(++outletsDone)+' of '+OUTLETS.length+' outlets…');
         console.log('[sbLoad] '+outlet.id+': '+(rows?rows.length:0)+' rows');
         if(rows&&rows.length){
           // Map rows — trust Supabase data, no dedup needed since save is clean
@@ -4811,7 +4812,11 @@ async function sbLoad(){
         _outletLoadState[outlet.id]='failed';
         toast('⚠ Could not load '+outlet.name+': '+e.message+' — uploads for this outlet are BLOCKED until it loads successfully (reload the page to retry).','err');
       }
-    }
+    }));
+    // Outlets finish loading in any order; put oData back in OUTLETS order so
+    // everything that walks all outlets (rankings with equal values, combined
+    // lists) comes out the same as when they loaded one by one.
+    OUTLETS.forEach(o=>{ if(Object.prototype.hasOwnProperty.call(oData,o.id)){ const v=oData[o.id]; delete oData[o.id]; oData[o.id]=v; } });
     console.log('[sbLoad] total sales loaded:',totalSalesLoaded);
 
     // ── Expenses ──
@@ -4906,15 +4911,44 @@ async function sbLoad(){
 }
 
 // ── Load sales for ONE outlet from Supabase ──
-async function loadOutletRows(outletId){
+// Pages of 1000 rows (the API's cap) are fetched several at a time instead of
+// one after another, and only the columns the app maps are requested. This
+// took the full load from ~37s to a few seconds. Errors are thrown, not
+// swallowed: returning [] used to mark a failed outlet as loaded "ok" with no
+// sales, which defeated the upload block that protects its cloud data.
+const SALES_COLS='date,month,invoice,item,qty,discount,total,category,flt,pay';
+const _salesPageSlots={free:8, queue:[]};   // max pages in flight across all outlets
+function _salesSlot(){ if(_salesPageSlots.free>0){_salesPageSlots.free--;return Promise.resolve();} return new Promise(r=>_salesPageSlots.queue.push(r)); }
+function _salesSlotDone(){ const n=_salesPageSlots.queue.shift(); if(n) n(); else _salesPageSlots.free++; }
+async function _salesPage(path, start, PAGE){
+  await _salesSlot();
   try{
-    const rows = await sbReq('sales_rows?outlet_id=eq.'+outletId+'&order=id.asc');
-    console.log('[loadOutlet] '+outletId+': '+(rows?rows.length:0)+' rows');
-    return rows||[];
-  }catch(e){
-    console.error('[loadOutlet] '+outletId+' failed:',e.message);
-    return [];
+    for(let attempt=0; ; attempt++){
+      const r=await fetch(SB_URL+'/rest/v1/'+path,{headers:{apikey:SB_KEY,Authorization:'Bearer '+SB_KEY,'Range-Unit':'items',Range:start+'-'+(start+PAGE-1)}});
+      if(r.ok) return await r.json();
+      if(attempt>=2 || r.status<500) throw new Error('SB GET sales_rows: '+r.status+' '+(await r.text()).slice(0,200));
+      await new Promise(res=>setTimeout(res, 500*(attempt+1)));
+    }
+  } finally { _salesSlotDone(); }
+}
+async function loadOutletRows(outletId){
+  const PAGE=1000;
+  const path='sales_rows?select='+SALES_COLS+'&outlet_id=eq.'+encodeURIComponent(outletId)+'&order=id.asc';
+  // how many rows → how many pages to request at once
+  const head=await fetch(SB_URL+'/rest/v1/sales_rows?select=id&outlet_id=eq.'+encodeURIComponent(outletId),
+    {headers:{apikey:SB_KEY,Authorization:'Bearer '+SB_KEY,Prefer:'count=exact','Range-Unit':'items',Range:'0-0'}});
+  if(!head.ok) throw new Error('SB count sales_rows: '+head.status+' '+(await head.text()).slice(0,200));
+  const total=+((head.headers.get('content-range')||'').split('/')[1])||0;
+  const pages=Math.ceil(total/PAGE);
+  const parts=await Promise.all(Array.from({length:pages},(_,i)=>_salesPage(path, i*PAGE, PAGE)));
+  const rows=[].concat(...parts);
+  // rows added after the count: keep reading until a short page
+  for(let start=pages*PAGE, last=parts.length?parts[parts.length-1]:[]; !pages || last.length===PAGE; start+=PAGE){
+    last=await _salesPage(path, start, PAGE); rows.push(...last);
+    if(last.length<PAGE) break;
   }
+  console.log('[loadOutlet] '+outletId+': '+rows.length+' rows');
+  return rows;
 }
 
 // NOTE: this function is not currently called from any button or upload flow
@@ -11888,17 +11922,14 @@ function buildAliasTable(){
 // ════════════════════════════════════════════════════════════
 function refreshAll(){
   invalidateSoldCache(); // fresh computation per render; dedupes the many calls within this pass
-  if(typeof buildHomePage==='function')buildHomePage();
   buildMonthBtns();
   updateFilterInfo();
-  buildSummary();
-  buildOutletsPage();
-  buildItemsPage();
-  buildCategoriesPage();
-  buildComparePage();
-  buildExpensesPage();
-  buildPLPage();
-  buildInventoryPage();
+  // Rebuild only the page on screen. Every page is rebuilt by showPage() when
+  // it is opened, so building all ten hidden pages here (as before) cost ~4s on
+  // every load and every month/filter change for nothing.
+  const _active=document.querySelector('.page.active');
+  const _ap=_active?_active.id.replace(/^page-/,''):'';
+  if(_ap&&!['segments','brandsales','packages'].includes(_ap)) showPage(_ap, document.querySelector('.nav-tab.active'));
   // Runway rebuilds only when tab is active (lazy) — but re-populate outlet selector on data refresh
   _populateSrOutletSel();
   // Segment / Brand / Package pages read the live date filter too — rebuild them
@@ -15375,7 +15406,20 @@ function _masterLookup(key, outletId){
   if(!MASTER_GENERIC['all seasons miniature']) MASTER_GENERIC['all seasons miniature']={code:'W-001',brand:'ALL SEASONS',size:750,cat:'WHISKY',unit:'90ml Miniature',ml:90};
 })();
 
+// Pages call this tens of thousands of times for a few thousand distinct item
+// names (Segment Sales: 62k calls, ~6s), and an unmatched name scans every
+// master key. Results are remembered for the current task only, then
+// dropped, so an answer can never outlive a change to the mapping tables.
+let _rmiCache=null;
 function resolveMasterItem(petpoojaName, outletId){
+  if(!_rmiCache){ _rmiCache=new Map(); setTimeout(()=>{ _rmiCache=null; },0); }
+  const ck=(outletId||'')+'\u0001'+(petpoojaName||'');
+  if(_rmiCache.has(ck)) return _rmiCache.get(ck);
+  const res=_resolveMasterItemUncached(petpoojaName, outletId);
+  _rmiCache.set(ck,res);
+  return res;
+}
+function _resolveMasterItemUncached(petpoojaName, outletId){
   const key=(petpoojaName||'').toLowerCase().trim();
   let hit=_masterLookup(key, outletId);
   if(hit) return hit;
@@ -21430,20 +21474,29 @@ function cashSeries(outletId){
   dateSet.add(startKey);
   const dates=[...dateSet].sort();
 
+  // Day totals in one pass. Calling cashAutoSaleForDay/cashExpensesForDay per
+  // day re-scanned every sale and expense of the outlet for every day, which
+  // took ~5s to open this page. Same sums, computed once.
+  const cashByDay=new Map(), expByDay=new Map();
+  (oData[outletId]||[]).forEach(r=>{ if(r.date && cashPayBucket(r.pay)==='cash'){ const k=dtKey(r.date); cashByDay.set(k,(cashByDay.get(k)||0)+(+r.total||0)); } });
+  (typeof FIN_EXP!=='undefined'?FIN_EXP:[]).forEach(e=>{ if(e.outlet_id===outletId && /cash/i.test(e.payment_mode||'') && e.date){ const k=dtKey(e.date); expByDay.set(k,(expByDay.get(k)||0)+(+e.amount||0)); } });
+  const manualByDay=new Map();
+  CASH_ROWS.forEach(r=>{ if(r.outlet_id===outletId && !manualByDay.has(r.date)) manualByDay.set(r.date,r); });
+
   let running=ob.amount;
   const days=dates.map((dk,i)=>{
-    const manual=CASH_ROWS.find(r=>r.outlet_id===outletId&&r.date===dk);
+    const manual=manualByDay.get(dk);
     const ex=manual&&manual.extras?manual.extras:{};
     // cash sale: if a manual entry exists, its cash_sale is authoritative
     // (the modal pre-fills it with the auto figure, so saving = explicit value).
     // Otherwise use the auto cash figure from Payment Type.
-    const autoSale=cashAutoSaleForDay(outletId,dk);
+    const autoSale=Math.round(cashByDay.get(dk)||0);
     const hasManual = !!manual;
     const cashSale = hasManual ? (+manual.cash_sale||0) : autoSale;
     const floatAdd = ex.float||0;
     const scrap    = ex.scrap||0;
     const received = (manual?manual.cash_received:0)||0;
-    const cashExp  = cashExpensesForDay(outletId,dk);   // live from ledger
+    const cashExp  = expByDay.get(dk)||0;   // live from ledger
     const deposit  = (manual?manual.cash_deposit:0)||0;
     const transfer = (manual?manual.cash_transfer:0)||0;
     const opening  = i===0 ? ob.amount : running;
