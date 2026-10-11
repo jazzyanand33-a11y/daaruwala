@@ -1243,7 +1243,7 @@ html,body{font-family:var(--ui);letter-spacing:.1px;}
     <!-- EXPENSE LEDGER (Gas + Other Op Exp summary; full ledger CRUD lives on its own page) -->
     <div class="pl2-tab" data-tab="expledger" style="display:none">
       <div class="card">
-        <div class="card-h"><span class="card-t">🔥 Gas &amp; Other Operating Expenses</span><span class="card-b">From Expense Ledger, through accrual date</span></div>
+        <div class="card-h"><span class="card-t">🔥 Fuel &amp; Other Operating Expenses</span><span class="card-b">From Expense Ledger, through accrual date</span></div>
         <div id="pl2ExpSigBadge"></div>
         <div id="pl2OpExp"></div>
         <div style="font-size:11px;color:var(--mu2);margin-top:10px;">Full line-item entry/editing lives on the <a href="javascript:showPage('finexp')" style="color:var(--a4)">💸 Expense Ledger</a> page — this is the P&amp;L-relevant summary.</div>
@@ -8093,7 +8093,7 @@ function buildPurchaseCostControl(){
   if(note){
     const un=Object.entries(cur.unmatched).sort((a,b)=>b[1]-a[1]).slice(0,10);
     const unTot=Object.values(cur.unmatched).reduce((s,v)=>s+v,0);
-    note.innerHTML='<b>Charged To</b> tells you where each head lands in P&amp;L Live: food heads are inside <b style="color:#ffd24d">Food Cost</b>, liquor inside <b style="color:#7c5cf5">Liquor Cost</b>, beverage inside <b style="color:#2a86ff">Beverage Cost</b> (soft drinks/juice/water — kept separate from Food and Liquor), and only Maintenance / Conveyance / Miscellaneous / Hookah / Gas / Coal count as <b style="color:#ff8c1a">Other Operating Expense</b> — so nothing is counted twice.'
+    note.innerHTML='<b>Charged To</b> tells you where each head lands in P&amp;L Live: food heads are inside <b style="color:#ffd24d">Food Cost</b>, liquor inside <b style="color:#7c5cf5">Liquor Cost</b>, beverage inside <b style="color:#2a86ff">Beverage Cost</b> (soft drinks/juice/water — kept separate from Food and Liquor), and only Maintenance / Miscellaneous count as <b style="color:#ff8c1a">Other Operating Expense</b> (Gas + Coal are Fuel Expense, Conveyance / Hookah go to Other Variable Costs) — so nothing is counted twice.'
       +(un.length?'<br><br><b style="color:#ffb020">⚠ '+fI(unTot)+' not matched to any head:</b> '+un.map(([k,v])=>_esc(k)+' ('+fI(v)+')').join(', ')+' — rename these categories in the 💰 Expense Ledger so they are tracked here and land in the right P&amp;L bucket.':'<br><br><span style="color:#26d782">✓ Every expense this month matched a purchase head.</span>');
   }
 }
@@ -9328,7 +9328,10 @@ const PL2_FOOD_RX=/grocery|groceries|vegetable|veg\b|non\s*-?\s*veg|chicken|mutt
 // liquor bucket, so every bottle purchase fell into "other operating
 // expenses" — inflating OpEx and leaving liquor cost purely theoretical.
 const PL2_LIQUOR_RX=/liquor|liqour|alcohol|beer|whisky|whiskey|vodka|rum\b|\bgin\b|wine|tequila|brandy|scotch|imfl|excise|tp purchase|bar purchase|bar stock|corporation|bevco|distill/i;
-const PL2_GAS_RX=/\bgas\b|lpg|cylinder|fuel gas/i;
+// FUEL = gas + charcoal/coal. Both land in one "Fuel Expense" line (internal
+// bucket key stays 'gas' so saved category mappings keep working).
+const PL2_GAS_RX=/\bgas\b|lpg|cylinder|fuel gas|charcoal|\bcoal\b|briquette/i;
+const PL2_CHARCOAL_RX=/charcoal|\bcoal\b|briquette/i;
 // EXCLUDED from P&L entirely — money leaving the business that is NOT an
 // expense: the owner taking cash out (drawings), capital purchases, loan
 // principal. Counting these as expenses would understate profit.
@@ -9340,6 +9343,8 @@ const PL2_EXCLUDE_RX=/capital|capex|owner\s*(withdraw|drawing|cash)|partner\s*(w
 // Anything not matching this and not matching food/liquor/gas is still counted
 // as "other", but this list is what the P&L labels and explains.
 const PL2_OTHER_OPEX_RX=/misc|miscellaneous|maintenance|maintainance|repair|conveyance|convience|convenience|travel|taxi|cab\b|petrol|diesel|fuel(?!\s*gas)|courier|stationery|printing|sundry/i;
+// What actually counts as "Other Operating Expenses" in P&L Live.
+const PL2_MISC_MAINT_RX=/misc|miscellaneous|sundry|maintenance|maintainance|maintanance|maintenence|repair/i;
 function _pl2BucketFor(category){
   const key=(category||'').trim().toLowerCase();
   // The Expense Ledger has its own category→bucket map (finCatToBucket).
@@ -9462,9 +9467,10 @@ function _pl2Compute(outletFilter, mk, override){
   const masterCatNames=new Set();
   outletIds.forEach(oid=>(PL2_COST_MASTER[oid]||[]).filter(c=>c.active).forEach(c=>masterCatNames.add(c.category.trim().toLowerCase())));
 
-  let foodPurchases=0, liquorPurchases=0, gasExpense=0, otherOpExpense=0, excludedTotal=0;
+  let foodPurchases=0, liquorPurchases=0, gasExpense=0, charcoalExpense=0, otherOpExpense=0, excludedTotal=0;
   const foodPurchasesByOutlet={};
   const otherOpBreakdown={};
+  let otherVarExpense=0; const otherVarBreakdown={};
   let fixedLedgerTotal=0; const fixedLedgerBreakdown={};
   outletIds.forEach(oid=>FIN_EXP.filter(e=>e.outlet_id===oid).forEach(e=>{
     if(!e.date) return;
@@ -9474,7 +9480,7 @@ function _pl2Compute(outletFilter, mk, override){
     if(bucket==='exclude'){ excludedTotal+=amt; return; }
     if(bucket==='food'){ foodPurchases+=amt; foodPurchasesByOutlet[oid]=(foodPurchasesByOutlet[oid]||0)+amt; return; }
     if(bucket==='liquor'){ liquorPurchases+=amt; return; }   // real spend from the ledger
-    if(bucket==='gas'){ gasExpense+=amt; return; }
+    if(bucket==='gas'){ gasExpense+=amt; if(PL2_CHARCOAL_RX.test(e.category||'')) charcoalExpense+=amt; return; } // gasExpense = total fuel
     if(masterCatNames.has((e.category||'').trim().toLowerCase())) return; // already counted via Cost Master accrual
     // Fixed-type expenses (salary, rent, electricity, marketing…) are charged
     // through ⚙ Cost Master, per the P&L model. When the ledger category name
@@ -9488,10 +9494,21 @@ function _pl2Compute(outletFilter, mk, override){
       fixedLedgerBreakdown[fk]=(fixedLedgerBreakdown[fk]||0)+amt;
       return;
     }
-    otherOpExpense+=amt;
-    // keep a breakdown so the P&L can show WHAT is inside Other OpEx
     const ck=(e.category||'(uncategorised)').trim();
-    otherOpBreakdown[ck]=(otherOpBreakdown[ck]||0)+amt;
+    // Other Operating Expenses = ONLY Miscellaneous + Maintenance (or a
+    // category the person explicitly mapped to "Other Operating Expense").
+    // Everything else that reaches here (beverage, charcoal, hookah,
+    // conveyance, packaging, uncategorised…) used to be swept into Other OpEx
+    // and inflated it. It is still a real cost, so it is deducted on its own
+    // "Other Variable Costs" line instead of disappearing from profit.
+    const lk=(e.category||'').trim().toLowerCase();
+    if(PL2_MISC_MAINT_RX.test(lk) || PL2_EXP_MAP[lk]==='other'){
+      otherOpExpense+=amt;
+      otherOpBreakdown[ck]=(otherOpBreakdown[ck]||0)+amt;
+    } else {
+      otherVarExpense+=amt;
+      otherVarBreakdown[ck]=(otherVarBreakdown[ck]||0)+amt;
+    }
   }));
 
   // Food cost — each outlet keeps its OWN target %, weighted by its own food
@@ -9578,7 +9595,7 @@ function _pl2Compute(outletFilter, mk, override){
 
   const totalRevenue=salesTotal+scrapSale+otherIncome;
   const grossProfit=totalRevenue-effFoodCost-liquorCost;
-  const liveProfit=grossProfit-totalCostMasterMtd-gasExpense-otherOpExpense;
+  const liveProfit=grossProfit-totalCostMasterMtd-gasExpense-otherOpExpense-otherVarExpense;
   const profitMarginPct= totalRevenue? liveProfit/totalRevenue*100 : 0;
 
   // Page status
@@ -9593,9 +9610,9 @@ function _pl2Compute(outletFilter, mk, override){
     foodPurchases,foodPct,estFoodCost,estFoodBalance,actualFoodClosing,actualFoodCost,effFoodCost,effFoodCostPct,
     foodPurchPct:(salesFood?foodPurchases/salesFood*100:0),
     foodTargetPct:(salesFood?estFoodCost/salesFood*100:0),
-    liquorPurchases, otherOpBreakdown, fixedLedgerTotal, fixedLedgerBreakdown,
+    liquorPurchases, otherOpBreakdown, otherVarExpense, otherVarBreakdown, fixedLedgerTotal, fixedLedgerBreakdown,
     liquorBasis,liquorOverride,liquorCost,liquorCostPct,
-    costRows,totalCostMasterMtd,gasExpense,otherOpExpense,excludedTotal,
+    costRows,totalCostMasterMtd,gasExpense,charcoalExpense,otherOpExpense,excludedTotal,
     scrapSale,otherIncome,totalRevenue,grossProfit,liveProfit,profitMarginPct,pageStatus};
 }
 
@@ -9645,12 +9662,12 @@ function _pl2MonthEnd(mk){ const [y,m]=mk.split('-').map(Number); return dtKey(n
 function _pl2BookItems(oid, mk){
   const nowMk=monthKey(new Date());
   const r=_pl2Compute(oid, mk, mk<nowMk ? _pl2MonthEnd(mk) : null);
-  // Other OpEx holds beverage and charcoal purchases; split them out so they
-  // land on their own P&L lines. The total is unchanged.
-  let bev=0, charcoal=0;
-  Object.entries(r.otherOpBreakdown||{}).forEach(([cat,amt])=>{
+  // Other Variable Costs hold beverage and charcoal purchases; split them out
+  // so they land on their own P&L lines. The total is unchanged.
+  let bev=0; const charcoal=r.charcoalExpense||0, gasOnly=(r.gasExpense||0)-charcoal;
+  Object.entries(r.otherVarBreakdown||{}).forEach(([cat,amt])=>{
     const b=typeof finCatToBucket==='function'?finCatToBucket((cat||'').toLowerCase()):'';
-    if(b==='beverage') bev+=amt; else if(b==='charcoal'||b==='hookah') charcoal+=amt;
+    if(b==='beverage') bev+=amt;
   });
   const fixed={rent:0, elec:0, staff:0, lic:0, other:0};
   r.costRows.forEach(c=>{
@@ -9661,14 +9678,14 @@ function _pl2BookItems(oid, mk){
     else if(/licen[cs]e/.test(k)) fixed.lic+=c.mtd;
     else fixed.other+=c.mtd;
   });
-  const otherVar=r.otherOpExpense-bev-charcoal;
-  const totalOp=r.effFoodCost+bev+r.liquorCost+r.gasExpense+charcoal+fixed.rent+fixed.elec+fixed.staff+fixed.lic+fixed.other+otherVar;
+  const otherVar=r.otherOpExpense+(r.otherVarExpense||0)-bev;
+  const totalOp=r.effFoodCost+bev+r.liquorCost+gasOnly+charcoal+fixed.rent+fixed.elec+fixed.staff+fixed.lic+fixed.other+otherVar;
   const R=v=>Math.round(v||0);
   const items={
     'Sales - Food':R(r.salesFood), 'Sales - Beverage':R(r.salesBev), 'Hookah Sales':R(r.salesHookah),
     'Sales - Liquor':R(r.salesLiquor), 'Sales - Total':R(r.salesTotal),
     'Food Cost - COGS':R(r.effFoodCost), 'Beverage Cost - COGS':R(bev), 'Liquor Cost - COGS':R(r.liquorCost),
-    'Gas Cost':R(r.gasExpense), 'Charcoal Cost':R(charcoal),
+    'Gas Cost':R(gasOnly), 'Charcoal Cost':R(charcoal),
     'Total Other Income':R(r.scrapSale+r.otherIncome),
     'Total Rent Cost':R(fixed.rent), 'Total Electricity Cost':R(fixed.elec), 'Total Personnel Cost':R(fixed.staff),
     'License Fees':R(fixed.lic), 'Other Fixed Operating Cost':R(fixed.other), 'Total Other Variable Operating':R(otherVar),
@@ -9783,7 +9800,8 @@ function buildPL2Page(){
       ['Liquor Purchased (ledger)',r.liquorPurchases,'#a78bfa'],
       ['Gross Profit',r.grossProfit,'#2a86ff'],
       ['Recurring Costs (MTD)',r.totalCostMasterMtd,'#ff8c1a'],
-      ['Other OpEx (misc/maint/conv)',r.gasExpense+r.otherOpExpense,'#ff5470'],
+      ['Other OpEx (misc/maint)',r.otherOpExpense,'#ff5470'],
+      ['Other Variable Costs',r.otherVarExpense||0,'#ff8c1a'],
     ].map(([lbl,val,clr])=>`<div class="kpi" style="--clr:${clr}"><div class="kpi-lbl">${lbl}</div><div class="kpi-val">${fI(val)}</div></div>`).join('');
   });
 
@@ -9875,13 +9893,15 @@ function buildPL2Page(){
       </div>
       ${(function(){
         const bd=Object.entries(r.otherOpBreakdown||{}).sort((a,b)=>b[1]-a[1]);
-        if(!bd.length) return '';
+        const vd=Object.entries(r.otherVarBreakdown||{}).sort((a,b)=>b[1]-a[1]);
+        if(!bd.length && !vd.length) return '';
+        const chips=list=>list.slice(0,14).map(([k,v])=>`<span style="background:var(--sf2);border:1px solid var(--bd);border-radius:14px;padding:3px 10px;font-size:10.5px;"><b>${_esc(k)}</b> · ${fI(v)}</span>`).join('');
         return `<div style="margin-top:12px;padding-top:10px;border-top:1px solid var(--bd);">
-          <div style="font-size:11px;font-weight:800;color:#ff8c1a;margin-bottom:5px;">Inside "Other Operating Expenses" — ${fI(r.otherOpExpense||0)}</div>
-          <div style="font-size:10.5px;color:var(--mu2);margin-bottom:6px;">Grocery, dairy, vegetables, non-veg and local purchase are <b>NOT</b> here — they are already inside Food Cost above. Only genuine overheads appear below.</div>
-          <div style="display:flex;flex-wrap:wrap;gap:6px;">
-            ${bd.slice(0,14).map(([k,v])=>`<span style="background:var(--sf2);border:1px solid var(--bd);border-radius:14px;padding:3px 10px;font-size:10.5px;"><b>${_esc(k)}</b> · ${fI(v)}</span>`).join('')}
-          </div>
+          <div style="font-size:11px;font-weight:800;color:#ff5470;margin-bottom:5px;">Inside "Other Operating Expenses" — ${fI(r.otherOpExpense||0)}</div>
+          <div style="font-size:10.5px;color:var(--mu2);margin-bottom:6px;">Only <b>Miscellaneous</b> and <b>Maintenance</b> entries count here. Food purchases are inside Food Cost above.</div>
+          <div style="display:flex;flex-wrap:wrap;gap:6px;">${bd.length?chips(bd):'<span style="font-size:10.5px;color:var(--mu2)">No miscellaneous or maintenance entries this month.</span>'}</div>
+          ${vd.length?`<div style="font-size:11px;font-weight:800;color:#ff8c1a;margin:10px 0 5px;">Other Variable Costs (deducted separately) — ${fI(r.otherVarExpense||0)}</div>
+          <div style="display:flex;flex-wrap:wrap;gap:6px;">${chips(vd)}</div>`:''}
         </div>`;
       })()}`;
   });
@@ -9896,8 +9916,9 @@ function buildPL2Page(){
       ['− Liquor Cost (consumed, from inventory)', -r.liquorCost, 1],
       ['= Gross Profit', r.grossProfit, 2],
       ['− Recurring Costs (Salary/Rent/Electricity/etc.)', -r.totalCostMasterMtd, 1],
-      ['− Gas Expense', -r.gasExpense, 1],
-      ['− Other Operating Expenses (misc · maintenance · conveyance)', -r.otherOpExpense, 1],
+      ['− Fuel Expense (Gas + Charcoal)', -r.gasExpense, 1],
+      ['− Other Operating Expenses (miscellaneous · maintenance)', -r.otherOpExpense, 1],
+      ['− Other Variable Costs (beverage · hookah · conveyance · other)', -(r.otherVarExpense||0), 1],
       ['= LIVE ESTIMATED PROFIT', r.liveProfit, 3],
     ];
     document.getElementById('pl2Bridge').innerHTML=bridgeRows.map(([lbl,val,lvl])=>{
@@ -10128,10 +10149,11 @@ function _pl2RenderAccrualTbl(r){
 function _pl2RenderOpExp(r){
   const el=document.getElementById('pl2OpExp'); if(!el) return;
   el.innerHTML=`<table class="tbl" style="font-size:12px">
-    <tr><td>🔥 Gas Expense <span style="font-size:10px;color:var(--mu2)">(Expense Ledger, mapped)</span></td><td class="num">${fI(r.gasExpense)}</td></tr>
-    <tr><td>🧾 Other Operating Expenses <span style="font-size:10px;color:var(--mu2)">(everything else, excluding Food/Gas/Cost Master items)</span></td><td class="num">${fI(r.otherOpExpense)}</td></tr>
+    <tr><td>🔥 Fuel Expense <span style="font-size:10px;color:var(--mu2)">(Gas ${fI((r.gasExpense||0)-(r.charcoalExpense||0))} + Charcoal ${fI(r.charcoalExpense||0)})</span></td><td class="num">${fI(r.gasExpense)}</td></tr>
+    <tr><td>🧾 Other Operating Expenses <span style="font-size:10px;color:var(--mu2)">(Miscellaneous + Maintenance only)</span></td><td class="num">${fI(r.otherOpExpense)}</td></tr>
+    <tr><td>📦 Other Variable Costs <span style="font-size:10px;color:var(--mu2)">(beverage, hookah, conveyance, other)</span></td><td class="num">${fI(r.otherVarExpense||0)}</td></tr>
     ${r.excludedTotal>0?`<tr><td style="color:var(--mu2)">Excluded (Capex / owner withdrawal / loan principal etc.)</td><td class="num" style="color:var(--mu2)">${fI(r.excludedTotal)}</td></tr>`:''}
-    <tr style="background:var(--sf2)"><td><b>Total</b></td><td class="num"><b>${fI(r.gasExpense+r.otherOpExpense)}</b></td></tr>
+    <tr style="background:var(--sf2)"><td><b>Total</b></td><td class="num"><b>${fI(r.gasExpense+r.otherOpExpense+(r.otherVarExpense||0))}</b></td></tr>
   </table>`;
 }
 
@@ -10186,7 +10208,7 @@ function _pl2RenderExpMapForm(){
   const el=document.getElementById('pl2MapForm'); if(!el) return;
   el.innerHTML=`<div style="display:flex;gap:8px;flex-wrap:wrap;align-items:flex-end;">
     <div><label style="font-size:10px;color:var(--mu2);display:block;">Ledger Category (exact text)</label><input type="text" id="pl2MapCat" placeholder="e.g. Diesel Generator" style="padding:6px 8px;border-radius:6px;background:var(--sf2);border:1px solid var(--bd);color:var(--text);font-size:12px;width:170px;"></div>
-    <div><label style="font-size:10px;color:var(--mu2);display:block;">Bucket</label><select id="pl2MapBucket" style="padding:6px 8px;border-radius:6px;background:var(--sf2);border:1px solid var(--bd);color:var(--text);font-size:12px;"><option value="food">Food Purchase</option><option value="gas">Gas Expense</option><option value="other" selected>Other Operating Expense</option><option value="exclude">Exclude (non-operating)</option></select></div>
+    <div><label style="font-size:10px;color:var(--mu2);display:block;">Bucket</label><select id="pl2MapBucket" style="padding:6px 8px;border-radius:6px;background:var(--sf2);border:1px solid var(--bd);color:var(--text);font-size:12px;"><option value="food">Food Purchase</option><option value="gas">Fuel Expense (Gas + Charcoal)</option><option value="other" selected>Other Operating Expense</option><option value="exclude">Exclude (non-operating)</option></select></div>
     <button onclick="_pl2AddExpMap()" style="background:var(--a4);border:none;color:#fff;border-radius:8px;padding:8px 14px;font-size:12px;font-weight:700;cursor:pointer;">➕ Add Rule</button>
   </div>`;
 }
@@ -10210,7 +10232,7 @@ function _pl2RenderExpMapTbl(){
   const keys=Object.keys(PL2_EXP_MAP);
   const thead=`<tr><th>Ledger Category</th><th>Mapped To</th><th style="text-align:right">Remove</th></tr>`;
   if(!keys.length){ tbl.innerHTML=`<thead>${thead}</thead><tbody><tr><td colspan="3" class="empty">No manual overrides yet — automatic keyword matching is used for Food/Gas detection.</td></tr></tbody>`; return; }
-  const lbl={food:'🍱 Food Purchase',gas:'🔥 Gas Expense',other:'🧾 Other Operating Expense',exclude:'🚫 Excluded'};
+  const lbl={food:'🍱 Food Purchase',gas:'🔥 Fuel Expense (Gas + Charcoal)',other:'🧾 Other Operating Expense',exclude:'🚫 Excluded'};
   tbl.innerHTML=`<thead>${thead}</thead><tbody>${keys.map(k=>`<tr><td>${_esc(k)}</td><td>${lbl[PL2_EXP_MAP[k]]||PL2_EXP_MAP[k]}</td><td style="text-align:right"><button onclick="_pl2RemoveExpMap('${k.replace(/'/g,"\\'")}')" style="background:rgba(255,84,112,.1);border:1px solid rgba(255,84,112,.35);color:#ff5470;width:24px;height:24px;border-radius:6px;cursor:pointer;font-size:10px;">✕</button></td></tr>`).join('')}</tbody>`;
 }
 
@@ -10461,10 +10483,11 @@ function _pl2GenerateSignals(outletFilter, mk){
         'Negative operating profit this month ('+fI(r.liveProfit)+')', 'Review the Profit Bridge for the largest cost drivers immediately');
     } else if(marginDiff<-3){
       const contributors=[
-        {label:'Gas Expense', delta:r.gasExpense-rPrev.gasExpense},
+        {label:'Fuel Expense', delta:r.gasExpense-rPrev.gasExpense},
         {label:'Food Cost', delta:r.effFoodCost-rPrev.effFoodCost},
         {label:'Liquor Cost', delta:r.liquorCost-rPrev.liquorCost},
         {label:'Other Operating Expenses', delta:r.otherOpExpense-rPrev.otherOpExpense},
+        {label:'Other Variable Costs', delta:(r.otherVarExpense||0)-(rPrev.otherVarExpense||0)},
         {label:'Recurring Costs', delta:r.totalCostMasterMtd-rPrev.totalCostMasterMtd},
       ].filter(c=>c.delta>0).sort((a,b)=>b.delta-a.delta).slice(0,3);
       push(marginDiff<-5?'CRITICAL':'WARNING','business','Profit Margin','Live Profit Margin %', r.profitMarginPct, rPrev.profitMarginPct,
@@ -10482,8 +10505,8 @@ function _pl2GenerateSignals(outletFilter, mk){
   // ── 8. SALES VS COST GROWTH ──
   if(rPrev.salesTotal>=rules.minAmount){
     const salesGrowth=(r.salesTotal-rPrev.salesTotal)/rPrev.salesTotal*100;
-    const curTotalCost=r.effFoodCost+r.liquorCost+r.totalCostMasterMtd+r.gasExpense+r.otherOpExpense;
-    const prevTotalCost=rPrev.effFoodCost+rPrev.liquorCost+rPrev.totalCostMasterMtd+rPrev.gasExpense+rPrev.otherOpExpense;
+    const curTotalCost=r.effFoodCost+r.liquorCost+r.totalCostMasterMtd+r.gasExpense+r.otherOpExpense+(r.otherVarExpense||0);
+    const prevTotalCost=rPrev.effFoodCost+rPrev.liquorCost+rPrev.totalCostMasterMtd+rPrev.gasExpense+rPrev.otherOpExpense+(rPrev.otherVarExpense||0);
     const costGrowth=prevTotalCost>0?(curTotalCost-prevTotalCost)/prevTotalCost*100:0;
     if(costGrowth-salesGrowth>10){
       push(costGrowth-salesGrowth>20?'WARNING':'WATCH','business','Sales vs Cost','Cost Growth − Sales Growth', costGrowth, salesGrowth,
@@ -10624,7 +10647,7 @@ function _pl2RenderSevenDay(outletFilter, mk, r){
   el.innerHTML=`<div style="font-size:11px;color:var(--mu2);margin-bottom:8px;">${d1} → ${d2} vs ${p1} → ${p2}</div>
     <table class="tbl" style="font-size:12px">
       <tr><td>Sales</td><td class="num">${fI(cur.salesTotal)}</td><td class="num" style="color:${salesGrowth>=0?'#26d782':'#ff5470'}">${salesGrowth>=0?'+':''}${salesGrowth.toFixed(1)}%</td></tr>
-      <tr><td>Gas Expense</td><td class="num">${fI(cur.expByBucket.gas)}</td><td class="num" style="color:${gasGrowth<=0?'#26d782':'#ff5470'}">${gasGrowth>=0?'+':''}${gasGrowth.toFixed(1)}%</td></tr>
+      <tr><td>Fuel Expense (Gas + Charcoal)</td><td class="num">${fI(cur.expByBucket.gas)}</td><td class="num" style="color:${gasGrowth<=0?'#26d782':'#ff5470'}">${gasGrowth>=0?'+':''}${gasGrowth.toFixed(1)}%</td></tr>
     </table>`;
 }
 
@@ -10703,8 +10726,9 @@ function pl2GeneratePDF(){
   kvRow('Liquor Cost ('+r.liquorCostPct.toFixed(1)+'%)', fI(r.liquorCost));
   kvRow('Gross Profit', fI(r.grossProfit));
   kvRow('Recurring Costs (Salary/Rent/Electricity/etc.)', fI(r.totalCostMasterMtd));
-  kvRow('Gas Expense', fI(r.gasExpense));
-  kvRow('Other Operating Expenses', fI(r.otherOpExpense));
+  kvRow('Fuel Expense (Gas + Charcoal)', fI(r.gasExpense));
+  kvRow('Other Operating Expenses (Misc + Maintenance)', fI(r.otherOpExpense));
+  kvRow('Other Variable Costs', fI(r.otherVarExpense||0));
   y+=4;
   kvRow('LIVE ESTIMATED PROFIT', fI(r.liveProfit), {bold:true, size:12, valueColor:r.liveProfit>=0?[38,215,130]:[255,84,112]});
   kvRow('Profit Margin %', r.profitMarginPct.toFixed(1)+'%', {bold:true});
@@ -10714,8 +10738,8 @@ function pl2GeneratePDF(){
   heading('Profit Bridge');
   [['MTD Total Sales', r.salesTotal],['+ Scrap Sale', r.scrapSale],['+ Other Income', r.otherIncome],
    ['= MTD Total Revenue', r.totalRevenue, true],['− Food Cost', -r.effFoodCost],['− Liquor Cost', -r.liquorCost],
-   ['= Gross Profit', r.grossProfit, true],['− Recurring Costs', -r.totalCostMasterMtd],['− Gas Expense', -r.gasExpense],
-   ['− Other Operating Expenses', -r.otherOpExpense],['= LIVE ESTIMATED PROFIT', r.liveProfit, true]
+   ['= Gross Profit', r.grossProfit, true],['− Recurring Costs', -r.totalCostMasterMtd],['− Fuel Expense (Gas + Charcoal)', -r.gasExpense],
+   ['− Other Operating Expenses', -r.otherOpExpense],['− Other Variable Costs', -(r.otherVarExpense||0)],['= LIVE ESTIMATED PROFIT', r.liveProfit, true]
   ].forEach(([lbl,val,bold])=>kvRow(lbl, fI(val), {bold:!!bold}));
   y+=10;
 
@@ -10749,7 +10773,7 @@ function pl2GeneratePDF(){
       const salesGrowth=prev.salesTotal?((cur.salesTotal-prev.salesTotal)/prev.salesTotal*100):0;
       const gasGrowth=prev.expByBucket.gas?((cur.expByBucket.gas-prev.expByBucket.gas)/prev.expByBucket.gas*100):0;
       bodyLine('Sales: '+fI(cur.salesTotal)+' ('+(salesGrowth>=0?'+':'')+salesGrowth.toFixed(1)+'% vs previous 7 days)', {size:10});
-      bodyLine('Gas Expense: '+fI(cur.expByBucket.gas)+' ('+(gasGrowth>=0?'+':'')+gasGrowth.toFixed(1)+'% vs previous 7 days)', {size:10});
+      bodyLine('Fuel Expense: '+fI(cur.expByBucket.gas)+' ('+(gasGrowth>=0?'+':'')+gasGrowth.toFixed(1)+'% vs previous 7 days)', {size:10});
     }
   }
 
@@ -10776,7 +10800,7 @@ function _pl2RenderOutletBreakdown(outletFilter, mk, override){
   if(outletFilter!=='ALL'){ card.style.display='none'; return; }
   card.style.display='';
   const rows=OUTLETS.map(o=>({o, r:_pl2Compute(o.id, mk, override)}))
-    .filter(x=>x.r.salesTotal>0 || x.r.foodPurchases>0 || x.r.gasExpense>0 || x.r.otherOpExpense>0);
+    .filter(x=>x.r.salesTotal>0 || x.r.foodPurchases>0 || x.r.gasExpense>0 || x.r.otherOpExpense>0 || x.r.otherVarExpense>0);
   const thead=`<tr><th>Outlet</th><th style="text-align:right">Sales</th><th style="text-align:right">Food Cost</th><th style="text-align:right">Liquor Cost</th><th style="text-align:right">Recurring</th><th style="text-align:right">Live Profit</th><th style="text-align:right">Margin %</th></tr>`;
   const tbl=document.getElementById('pl2OutletBreakdownTbl');
   if(!rows.length){ tbl.innerHTML=`<thead>${thead}</thead><tbody><tr><td colspan="7" class="empty">No outlet has data for this month yet</td></tr></tbody>`; return; }
