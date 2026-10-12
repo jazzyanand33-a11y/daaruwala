@@ -755,6 +755,7 @@ html,body{font-family:var(--ui);letter-spacing:.1px;}
     <button class="nav-tab" onclick="showPage('finexp',this);toggleSidebar(false)" data-testid="nav-finexp"><span class="tab-icon">💸</span><span>Expense Ledger</span></button>
     <button class="nav-tab" onclick="showPage('finance',this);toggleSidebar(false)" data-testid="nav-finance"><span class="tab-icon">📊</span><span>Finance Dashboard</span></button>
     <button class="nav-tab" onclick="showPage('cash',this);toggleSidebar(false)" data-testid="nav-cash"><span class="tab-icon">💵</span><span>Cash Tracking</span></button>
+    <button class="nav-tab" onclick="showPage('staff',this);toggleSidebar(false)" data-testid="nav-staff"><span class="tab-icon">👥</span><span>Staff Attendance</span></button>
     <button class="nav-tab" onclick="showPage('expenses',this);toggleSidebar(false)" data-testid="nav-expenses"><span class="tab-icon">📈</span><span>Cost Analysis</span></button>
     <button class="nav-tab" onclick="showPage('pl',this);toggleSidebar(false)" data-testid="nav-pl"><span class="tab-icon">💹</span><span>P&amp;L</span></button>
     <button class="nav-tab" onclick="showPage('plive',this);toggleSidebar(false)" data-testid="nav-plive"><span class="tab-icon">📅</span><span>P&amp;L Live</span></button>
@@ -1168,6 +1169,16 @@ html,body{font-family:var(--ui);letter-spacing:.1px;}
     <div class="pl2-tab" data-tab="overview">
       <div id="pl2Hero"></div>
       <div class="kpi-row-8" id="pl2Kpis"></div>
+      <div class="card" style="border-color:rgba(255,176,32,.45);">
+        <div class="card-h">
+          <div>
+            <span class="card-t">⚖️ Break-even — Daily Sales Needed to Cover Fixed Costs</span>
+            <div style="font-size:11px;color:var(--mu2);margin-top:3px;">The sales per day at which profit is exactly ₹0. Fixed costs come from the Monthly Cost Master. Variable costs (food, liquor, gas and other op-ex) use this month's actual % of sales.</div>
+          </div>
+          <span class="card-b" id="pl2BeBadge">—</span>
+        </div>
+        <div id="pl2BreakEven"></div>
+      </div>
       <div class="card">
         <div class="card-h"><span class="card-t">🚦 Priority Signals</span><span class="card-b">Top 5 · <a href="javascript:_pl2SwitchTab('signals')" style="color:var(--a4)">View All</a></span></div>
         <div id="pl2OverviewSignals"></div>
@@ -2494,6 +2505,31 @@ html,body{font-family:var(--ui);letter-spacing:.1px;}
         </div>
       </div>
     </div>
+  </div>
+
+  <!-- STAFF ATTENDANCE + DAY-BASED SALARY -->
+  <div class="page" id="page-staff">
+    <div style="display:flex;justify-content:space-between;align-items:flex-start;flex-wrap:wrap;gap:12px;">
+      <div>
+        <h2 style="font-size:20px;font-weight:800;">👥 Staff Attendance &amp; Salary</h2>
+        <p style="font-size:12px;color:var(--mu2);margin-top:4px;max-width:720px;">Click a day cell to cycle <b style="color:#26d782">P</b> Present → <b style="color:#ff5470">A</b> Absent → <b style="color:#ffb020">H</b> Half-day → <b style="color:#2a86ff">WO</b> Week-off (paid) → <b style="color:#a78bfa">L</b> Paid leave → blank. Salary is <b>per day = monthly salary ÷ days in the month</b>, paid for P + WO + L + ½ H. Net = earned + bonus − advance.</p>
+      </div>
+      <div style="display:flex;gap:8px;flex-wrap:wrap;">
+        <button class="login-btn" style="width:auto;padding:9px 18px;" onclick="stOpenStaffModal()">➕ Add Staff</button>
+        <button class="login-btn" style="width:auto;padding:9px 18px;background:var(--sf2);color:var(--text);border:1px solid var(--bd);" onclick="stExportExcel()">📥 Export Excel</button>
+      </div>
+    </div>
+    <div id="stCloudNote" style="font-size:11px;margin:8px 0;"></div>
+    <div style="display:flex;gap:12px;flex-wrap:wrap;margin:10px 0;align-items:flex-end;">
+      <div class="form-group" style="margin:0;"><label class="form-label">Outlet</label><select class="form-input" id="stOutlet" style="padding:7px 10px;min-width:170px;" onchange="stRender()"></select></div>
+      <div class="form-group" style="margin:0;"><label class="form-label">Month</label><input type="month" class="form-input" id="stMonth" style="padding:7px 10px;" onchange="stLoadMonth()"></div>
+      <div class="form-group" style="margin:0;"><label class="form-label">Quick mark — every active staff in view</label>
+        <div style="display:flex;gap:6px;flex-wrap:wrap;"><input type="date" class="form-input" id="stBulkDate" style="padding:7px 10px;width:auto;">
+        <select class="form-input" id="stBulkStatus" style="padding:7px 10px;width:auto;"><option value="P">Present</option><option value="A">Absent</option><option value="H">Half-day</option><option value="WO">Week-off</option><option value="L">Paid leave</option></select>
+        <button class="login-btn" style="width:auto;padding:7px 14px;" onclick="stBulkMark()">Apply</button></div></div>
+    </div>
+    <div class="kpi-row-8" id="stKpis"></div>
+    <div id="stSheets"></div>
   </div>
 
   <!-- FINANCE: EXPENSE LEDGER -->
@@ -5193,6 +5229,7 @@ function showPage(p,btn){
   if(p==='finexp'&&typeof meInit==='function') try{ meInit(); }catch(e){}
   if(p==='finance'&&typeof buildFinDashboard==='function') buildFinDashboard();
   if(p==='cash'&&typeof buildCashPage==='function') buildCashPage();
+  if(p==='staff'&&typeof buildStaffPage==='function') buildStaffPage();
   if(p==='settings') buildSettingsPage();
   if(p==='outletmgr'&&typeof renderOutletManager==='function') renderOutletManager();
   if(p==='ai'&&typeof aiInit==='function') aiInit();
@@ -9929,6 +9966,7 @@ function buildPL2Page(){
     }).join('');
   });
 
+  _pl2Safe('Break-even', ()=>_pl2RenderBreakEven(r));
   _pl2Safe('Outlet Breakdown', ()=>_pl2RenderOutletBreakdown(outletFilter, mk, override));
 
   _pl2Safe('Food Cost card', ()=>{
@@ -10794,6 +10832,67 @@ function pl2GeneratePDF(){
 // Shows each outlet on its own numbers when "All Outlets" is selected — real
 // drill-down instead of just a combined total. Hidden entirely when a single
 // outlet is already selected, since it'd just repeat the same numbers.
+// ── Break-even: daily sales needed for profit = ₹0 ──
+// Break-even sales = monthly fixed costs ÷ contribution margin, where the
+// contribution margin is 1 − (variable costs ÷ sales) using this month's
+// actual ratios. Fixed = Cost Master (actual where entered, else monthly amount).
+function _pl2RenderBreakEven(r){
+  const el=document.getElementById('pl2BreakEven'); if(!el) return;
+  const badge=document.getElementById('pl2BeBadge');
+  const fixedMonthly=r.costRows.reduce((s,c)=>s+(c.actual!=null?c.actual:c.monthlyAmt),0);
+  // Liquor cost comes from the stock register, which usually isn't uploaded
+  // until later in the month — then liquor cost reads ~₹0 and break-even
+  // comes out far too low. Below 30% of liquor sales, use last month's
+  // liquor cost % (or the Settings target) instead, and say so.
+  let liqCost=r.liquorCost, liqNote='';
+  if(r.salesLiquor>0 && r.liquorCost/r.salesLiquor<0.3){
+    let pct=null, src='';
+    try{
+      const lc=_pl2LastCompute||{}, mk=lc.mk||monthKey(new Date());
+      const [y,m]=mk.split('-').map(Number);
+      const pmk=monthKey(new Date(y,m-2,1));
+      const p=_pl2Compute(lc.outletFilter||'ALL', pmk, _pl2MonthEnd(pmk));
+      const pp=p.salesLiquor?p.liquorCost/p.salesLiquor:0;
+      if(pp>=0.3 && pp<=0.75){ pct=pp; src=monthLabel(pmk)+' actual'; }
+    }catch(e){}
+    if(pct==null){ pct=((PL2_SIGNAL_RULES&&+PL2_SIGNAL_RULES.liquorTargetPct)||35)/100; src='Settings target'; }
+    liqCost=r.salesLiquor*pct;
+    liqNote=`<div style="margin-top:8px;padding:8px 10px;border-radius:8px;background:rgba(255,176,32,.1);border:1px solid rgba(255,176,32,.35);color:#ffb020;">⚠ Liquor cost this month is only ${fI(r.liquorCost)} on ${fI(r.salesLiquor)} of liquor sales (the stock register is probably not uploaded yet). Break-even uses <b>${(pct*100).toFixed(1)}%</b> (${src}) = ${fI(liqCost)} instead.</div>`;
+  }
+  const varCost=r.effFoodCost+liqCost+r.gasExpense+r.otherOpExpense+(r.otherVarExpense||0);
+  const days=r.totalDays||30, elapsed=r.elapsed||0;
+  if(!fixedMonthly){ el.innerHTML='<div class="empty">No fixed costs in the Monthly Cost Master yet. Add Salary, Rent and Electricity on the <a href="javascript:_pl2SwitchTab(\'fixedexp\')" style="color:var(--a4)">Fixed Expenses</a> tab to see break-even.</div>'; if(badge) badge.textContent='—'; return; }
+  if(!(r.salesTotal>0)){ el.innerHTML='<div class="empty">No sales yet this month, so the variable cost % can\'t be measured. Fixed costs are '+fF(fixedMonthly)+'/month ('+fF(fixedMonthly/days)+'/day).</div>'; if(badge) badge.textContent='—'; return; }
+  const varPct=varCost/r.salesTotal;
+  const cm=1-varPct;
+  if(cm<=0){ el.innerHTML=`<div class="empty" style="color:#ff5470">Variable costs are ${(varPct*100).toFixed(1)}% of sales, so every sale loses money. Break-even isn't possible until food, liquor or op-ex costs come down.</div>`; if(badge) badge.textContent='No break-even'; return; }
+  const beMonthly=fixedMonthly/cm, beDaily=beMonthly/days;
+  const tgt=(PL2_SIGNAL_RULES&&+PL2_SIGNAL_RULES.marginTargetPct)||15;
+  const tgtCm=cm-tgt/100;
+  const tgtDaily=tgtCm>0?fixedMonthly/tgtCm/days:null;
+  const avgDaily=elapsed?r.salesTotal/elapsed:0;
+  const gapPct=beDaily?(avgDaily/beDaily-1)*100:0;
+  const left=Math.max(0,days-elapsed);
+  const stillNeed=Math.max(0,beMonthly-r.salesTotal);
+  const needPerDayLeft=left?stillNeed/left:null;
+  const ok=avgDaily>=beDaily;
+  if(badge){ badge.textContent=ok?'Above break-even ✓':'Below break-even'; badge.style.color=ok?'#26d782':'#ff5470'; }
+  const box=(lbl,val,sub,col)=>`<div class="kpi"><div class="kpi-lbl">${lbl}</div><div class="kpi-val" style="${col?'color:'+col:''}">${val}</div><div style="font-size:10.5px;color:var(--mu2);margin-top:4px;">${sub}</div></div>`;
+  el.innerHTML=`<div class="kpi-row-8">
+      ${box('Daily Sales Needed (Break-even)', fF(beDaily), fF(beMonthly)+' for the month', '#ffb020')}
+      ${box('Actual Avg Daily Sales', elapsed?fF(avgDaily):'—', elapsed?(ok?'+':'')+gapPct.toFixed(0)+'% vs break-even · '+elapsed+' days':'no days elapsed', ok?'#26d782':'#ff5470')}
+      ${box('Needed / Day for Rest of Month', needPerDayLeft==null?'—':(stillNeed?fF(needPerDayLeft):'✓ Covered'), left?left+' days left · '+fF(stillNeed)+' still to go':'month complete', stillNeed?'':'#26d782')}
+      ${box('Daily Sales for '+tgt+'% Profit', tgtDaily==null?'—':fF(tgtDaily), tgtDaily==null?'target margin above contribution':'target from ⚙️ Settings')}
+    </div>
+    <div style="font-size:11px;color:var(--mu2);margin-top:10px;line-height:1.7;">
+      Fixed costs <b style="color:var(--text)">${fF(fixedMonthly)}</b>/month (${fF(fixedMonthly/days)}/day) ÷ contribution margin <b style="color:var(--text)">${(cm*100).toFixed(1)}%</b>
+      (variable costs are ${(varPct*100).toFixed(1)}% of sales: food ${fI(r.effFoodCost)}, liquor ${fI(liqCost)}, gas/charcoal ${fI(r.gasExpense)}, other op-ex ${fI(r.otherOpExpense+(r.otherVarExpense||0))})
+      = break-even ${fF(beMonthly)} ÷ ${days} days = <b style="color:#ffb020">${fF(beDaily)}/day</b>.
+      ${r.scrapSale+r.otherIncome?'Other income ('+fI(r.scrapSale+r.otherIncome)+') is not counted, so the real break-even is slightly lower.':''}
+      ${liqNote}
+    </div>`;
+}
+
 function _pl2RenderOutletBreakdown(outletFilter, mk, override){
   const card=document.getElementById('pl2OutletBreakdownCard');
   if(!card) return;
@@ -20392,6 +20491,352 @@ async function tpBulkApproveAllReady(){
 
 window.DaaruTPBulk={extract:tpBulkExtract,match:tpMatchBrandOutlet,brands:tpOutletBrandsOnly};
 
+
+// ════════════════════════════════════════════════════════════════════
+// 👥 STAFF ATTENDANCE + DAY-BASED SALARY
+// Per day = monthly salary ÷ days in that month. Paid days = P + WO + L
+// + ½ H. Net = earned + bonus − advance. Staff, attendance and monthly
+// adjustments live in Supabase (staff_master / staff_attendance /
+// staff_payroll_adj); if those tables don't exist yet everything falls back
+// to this device's localStorage and the page shows the SQL to create them.
+// ════════════════════════════════════════════════════════════════════
+let ST_STAFF=[];            // {id,outlet_id,name,designation,phone,monthly_salary,joining_date,active}
+let ST_ATT={};              // staffId -> {'YYYY-MM-DD': status}
+let ST_ADJ={};              // staffId -> {advance,bonus,remarks}   (for ST_MONTH)
+let ST_MONTH='';
+let _stCloudOk=null;        // null = unknown, true = Supabase, false = local only
+const ST_CYCLE=['','P','A','H','WO','L'];
+const ST_PAID={P:1,H:0.5,WO:1,L:1,A:0};
+const ST_COLORS={P:'#26d782',A:'#ff5470',H:'#ffb020',WO:'#2a86ff',L:'#a78bfa'};
+const ST_SQL=`create table if not exists staff_master (id uuid primary key default gen_random_uuid(), outlet_id text not null, name text not null, designation text, phone text, monthly_salary numeric not null default 0, joining_date date, active boolean not null default true, created_at timestamptz default now());
+create table if not exists staff_attendance (staff_id uuid not null references staff_master(id) on delete cascade, att_date date not null, outlet_id text, status text not null, updated_at timestamptz default now(), primary key (staff_id, att_date));
+create table if not exists staff_payroll_adj (staff_id uuid not null references staff_master(id) on delete cascade, month text not null, advance numeric default 0, bonus numeric default 0, remarks text, primary key (staff_id, month));
+alter table staff_master disable row level security; alter table staff_attendance disable row level security; alter table staff_payroll_adj disable row level security;
+grant all on staff_master, staff_attendance, staff_payroll_adj to anon, authenticated;`;
+
+function _stLocal(k,v){
+  try{
+    if(v===undefined){ return JSON.parse(localStorage.getItem('dw_staff_'+k)||'null'); }
+    localStorage.setItem('dw_staff_'+k, JSON.stringify(v));
+  }catch(e){ return null; }
+}
+// Attribute-safe escape (the global _esc turns ' into \x27, which shows up in input values)
+function _stA(s){ return String(s==null?"":s).replace(/&/g,"&amp;").replace(/"/g,"&quot;").replace(/</g,"&lt;").replace(/>/g,"&gt;"); }
+function _stDim(mk){ const [y,m]=mk.split('-').map(Number); return new Date(y,m,0).getDate(); }
+function _stDayKey(mk,d){ return mk+'-'+String(d).padStart(2,'0'); }
+
+async function buildStaffPage(){
+  const oSel=document.getElementById('stOutlet');
+  if(oSel && oSel.options.length!==OUTLETS.length+1){
+    const cur=oSel.value||'ALL';
+    oSel.innerHTML='<option value="ALL">All Outlets</option>'+OUTLETS.map(o=>`<option value="${o.id}">${o.icon} ${_esc(o.name)}</option>`).join('');
+    oSel.value=cur;
+  }
+  const today=(typeof _istDay==='function')?_istDay():dtKey(new Date());
+  const mEl=document.getElementById('stMonth');
+  if(mEl && !mEl.value) mEl.value=today.slice(0,7);
+  const bd=document.getElementById('stBulkDate');
+  if(bd && !bd.value) bd.value=today;
+  await stLoadStaff();
+  await stLoadMonth();
+}
+
+async function stLoadStaff(){
+  try{
+    const rows=await sbReq('staff_master?select=*&order=outlet_id.asc,name.asc');
+    ST_STAFF=(rows||[]).map(r=>({...r, monthly_salary:+r.monthly_salary||0}));
+    _stCloudOk=true;
+  }catch(e){
+    console.warn('[staff] cloud load failed, using this device:',e.message);
+    _stCloudOk=false;
+    ST_STAFF=_stLocal('master')||[];
+  }
+  stRenderCloudNote();
+}
+
+async function stLoadMonth(){
+  ST_MONTH=(document.getElementById('stMonth')||{}).value||dtKey(new Date()).slice(0,7);
+  const from=_stDayKey(ST_MONTH,1), to=_stDayKey(ST_MONTH,_stDim(ST_MONTH));
+  ST_ATT={}; ST_ADJ={};
+  document.getElementById('stSheets').innerHTML='<div class="card"><div class="empty">Loading…</div></div>';
+  if(_stCloudOk){
+    try{
+      const att=await sbReq(`staff_attendance?select=staff_id,att_date,status&att_date=gte.${from}&att_date=lte.${to}`);
+      (att||[]).forEach(a=>{ (ST_ATT[a.staff_id]=ST_ATT[a.staff_id]||{})[String(a.att_date).slice(0,10)]=a.status; });
+      const adj=await sbReq(`staff_payroll_adj?select=*&month=eq.${ST_MONTH}`);
+      (adj||[]).forEach(a=>{ ST_ADJ[a.staff_id]={advance:+a.advance||0,bonus:+a.bonus||0,remarks:a.remarks||''}; });
+    }catch(e){ console.warn('[staff] month load failed:',e.message); toast('⚠ Could not load attendance: '+e.message,'err'); }
+  }else{
+    const allAtt=_stLocal('att')||{};
+    Object.entries(allAtt).forEach(([sid,days])=>{
+      Object.entries(days).forEach(([dk,st])=>{ if(dk>=from&&dk<=to) (ST_ATT[sid]=ST_ATT[sid]||{})[dk]=st; });
+    });
+    ST_ADJ=(_stLocal('adj')||{})[ST_MONTH]||{};
+  }
+  stRender();
+}
+
+function stRenderCloudNote(){
+  const el=document.getElementById('stCloudNote'); if(!el) return;
+  if(_stCloudOk) el.innerHTML='<span class="badge b-ok">☁ Synced to cloud</span>';
+  else el.innerHTML=`<span class="badge b-low">💾 Saved on this device only</span> <span style="color:var(--mu)">— to sync across devices, run this once in Supabase → SQL Editor, then reload:</span>
+    <textarea readonly style="width:100%;height:92px;margin-top:6px;font-size:10px;font-family:monospace;background:var(--sf3);color:var(--text);border:1px solid var(--bd);border-radius:6px;padding:6px;" onclick="this.select()">${_esc(ST_SQL)}</textarea>`;
+}
+
+// ── Salary maths for one staff member in ST_MONTH ──
+function stCalc(s){
+  const dim=_stDim(ST_MONTH);
+  const att=ST_ATT[s.id]||{};
+  const c={P:0,A:0,H:0,WO:0,L:0,blank:0};
+  const join=s.joining_date?String(s.joining_date).slice(0,10):'';
+  for(let d=1;d<=dim;d++){
+    const dk=_stDayKey(ST_MONTH,d);
+    if(join && dk<join) continue;          // before joining — not counted
+    const st=att[dk];
+    if(st && c[st]!=null) c[st]++; else c.blank++;
+  }
+  const paidDays=c.P+c.WO+c.L+c.H*0.5;
+  const perDay=(+s.monthly_salary||0)/dim;
+  const earned=Math.round(perDay*paidDays);
+  const adj=ST_ADJ[s.id]||{advance:0,bonus:0};
+  const net=earned+(+adj.bonus||0)-(+adj.advance||0);
+  return {...c, dim, paidDays, perDay, earned, advance:+adj.advance||0, bonus:+adj.bonus||0, net};
+}
+
+function _stVisibleStaff(){
+  const oid=(document.getElementById('stOutlet')||{}).value||'ALL';
+  return ST_STAFF.filter(s=>s.active!==false && (oid==='ALL'||s.outlet_id===oid));
+}
+
+function stRender(){
+  const wrap=document.getElementById('stSheets'); if(!wrap||!ST_MONTH) return;
+  const oid=(document.getElementById('stOutlet')||{}).value||'ALL';
+  const staff=_stVisibleStaff();
+  const dim=_stDim(ST_MONTH);
+  const today=(typeof _istDay==='function')?_istDay():dtKey(new Date());
+  const outlets=OUTLETS.filter(o=>oid==='ALL'||o.id===oid);
+
+  // KPIs
+  let gSal=0,gEarn=0,gNet=0,gAdv=0,gUnmarked=0;
+  const calcs={};
+  staff.forEach(s=>{ const c=stCalc(s); calcs[s.id]=c; gSal+=+s.monthly_salary||0; gEarn+=c.earned; gNet+=c.net; gAdv+=c.advance;
+    // unmarked = blank past days only
+    for(let d=1;d<=dim;d++){ const dk=_stDayKey(ST_MONTH,d); if(dk<today && !(ST_ATT[s.id]||{})[dk] && !(s.joining_date&&dk<String(s.joining_date).slice(0,10))) gUnmarked++; }
+  });
+  const todayIn=today.slice(0,7)===ST_MONTH;
+  const presentToday=todayIn?staff.filter(s=>{const st=(ST_ATT[s.id]||{})[today];return st==='P'||st==='H';}).length:null;
+  document.getElementById('stKpis').innerHTML=`
+    <div class="kpi"><div class="kpi-lbl">Active Staff</div><div class="kpi-val">${staff.length}</div></div>
+    <div class="kpi"><div class="kpi-lbl">Present Today</div><div class="kpi-val">${presentToday==null?'—':presentToday+'/'+staff.length}</div></div>
+    <div class="kpi"><div class="kpi-lbl">Full Monthly Salary</div><div class="kpi-val">${fF(gSal)}</div></div>
+    <div class="kpi"><div class="kpi-lbl">Earned (day-based)</div><div class="kpi-val">${fF(gEarn)}</div></div>
+    <div class="kpi"><div class="kpi-lbl">Advances</div><div class="kpi-val">${fF(gAdv)}</div></div>
+    <div class="kpi"><div class="kpi-lbl">Net Payable</div><div class="kpi-val" style="color:#26d782">${fF(gNet)}</div></div>
+    <div class="kpi"><div class="kpi-lbl">Unmarked Past Days</div><div class="kpi-val" style="color:${gUnmarked?'#ff5470':'#26d782'}">${gUnmarked}</div></div>`;
+
+  const dayHead=Array.from({length:dim},(_,i)=>{
+    const dk=_stDayKey(ST_MONTH,i+1);
+    const wd=new Date(dk+'T00:00:00').getDay();
+    return `<th style="min-width:28px;padding:3px 2px;font-size:9px;text-align:center;${wd===0?'color:#ff8c1a;':''}${dk===today?'background:rgba(42,134,255,.18);':''}">${i+1}<br><span style="font-weight:400;opacity:.7">${'SMTWTFS'[wd]}</span></th>`;
+  }).join('');
+
+  let html='';
+  outlets.forEach(o=>{
+    const list=staff.filter(s=>s.outlet_id===o.id);
+    if(oid==='ALL' && !list.length) return;
+    let tEarn=0,tNet=0,tSal=0;
+    const rows=list.map(s=>{
+      const c=calcs[s.id]; tEarn+=c.earned; tNet+=c.net; tSal+=+s.monthly_salary||0;
+      const att=ST_ATT[s.id]||{};
+      const join=s.joining_date?String(s.joining_date).slice(0,10):'';
+      const cells=Array.from({length:dim},(_,i)=>{
+        const dk=_stDayKey(ST_MONTH,i+1);
+        if(join && dk<join) return '<td style="background:var(--sf2);opacity:.4;text-align:center;font-size:9px;">–</td>';
+        const st=att[dk]||'';
+        const col=ST_COLORS[st];
+        const bg=col?col+'26':(dk<today?'rgba(255,84,112,.06)':'');
+        return `<td onclick="stCycle('${s.id}','${dk}')" title="${_stA(s.name)} · ${dk}${st?' · '+st:' · not marked'}" style="cursor:pointer;text-align:center;font-size:9.5px;font-weight:800;padding:4px 1px;user-select:none;color:${col||'var(--mu)'};background:${bg};">${st||'·'}</td>`;
+      }).join('');
+      const sid=s.id;
+      return `<tr>
+        <td style="white-space:nowrap;position:sticky;left:0;background:var(--sf);z-index:1;">
+          <b>${_esc(s.name)}</b> <span onclick="stOpenStaffModal('${sid}')" title="Edit staff" style="cursor:pointer;font-size:11px;">✏️</span><br>
+          <span style="font-size:10px;color:var(--mu2)">${_esc(s.designation||'')} · ${fF(s.monthly_salary)}/mo</span></td>
+        ${cells}
+        <td class="num" style="color:#26d782">${c.P}</td><td class="num" style="color:#ff5470">${c.A}</td><td class="num" style="color:#ffb020">${c.H}</td>
+        <td class="num" style="color:#2a86ff">${c.WO}</td><td class="num" style="color:#a78bfa">${c.L}</td>
+        <td class="num"><b>${c.paidDays}</b>/${c.dim}</td>
+        <td class="num">${'₹'+c.perDay.toFixed(2)}</td>
+        <td class="num"><b>${fF(c.earned)}</b></td>
+        <td><input type="number" min="0" class="form-input" value="${c.bonus||''}" placeholder="0" onchange="stSetAdj('${sid}','bonus',this.value)" style="width:80px;padding:4px 6px;font-size:11px;"></td>
+        <td><input type="number" min="0" class="form-input" value="${c.advance||''}" placeholder="0" onchange="stSetAdj('${sid}','advance',this.value)" style="width:80px;padding:4px 6px;font-size:11px;"></td>
+        <td class="num" style="color:#26d782;font-weight:800;">${fF(c.net)}</td>
+      </tr>`;
+    }).join('');
+    html+=`<div class="card">
+      <div class="card-h"><span class="card-t">${o.icon} ${_esc(o.name)} — ${monthLabel(ST_MONTH)}</span>
+        <span class="card-b">${list.length} staff · Earned ${fF(tEarn)} · Net ${fF(tNet)}</span></div>
+      ${list.length?`<div style="overflow-x:auto;"><table class="tbl" style="font-size:11px;border-collapse:collapse;">
+        <thead><tr><th style="text-align:left;position:sticky;left:0;background:var(--sf);z-index:2;min-width:150px;">Staff</th>${dayHead}
+          <th>P</th><th>A</th><th>H</th><th>WO</th><th>L</th><th>Paid Days</th><th>Per Day</th><th>Earned</th><th>Bonus/OT</th><th>Advance</th><th>Net Pay</th></tr></thead>
+        <tbody>${rows}</tbody>
+        <tfoot><tr style="font-weight:800;"><td style="position:sticky;left:0;background:var(--sf);">Total (${fF(tSal)}/mo)</td><td colspan="${dim+7}"></td><td class="num">${fF(tEarn)}</td><td></td><td></td><td class="num" style="color:#26d782">${fF(tNet)}</td></tr></tfoot>
+      </table></div>`:`<div class="empty">No staff added for ${_esc(o.name)} yet. Click ➕ Add Staff.</div>`}
+    </div>`;
+  });
+  if(!html) html=`<div class="card"><div class="empty"><b>👥</b>No staff added yet. Click ➕ Add Staff to start.</div></div>`;
+  wrap.innerHTML=html;
+}
+
+// ── Click a day: cycle status and save ──
+async function stCycle(staffId, dk){
+  const cur=(ST_ATT[staffId]||{})[dk]||'';
+  const next=ST_CYCLE[(ST_CYCLE.indexOf(cur)+1)%ST_CYCLE.length];
+  await stSetAtt([{staffId, dk, status:next}]);
+}
+
+async function stSetAtt(changes){
+  const s0=new Map(ST_STAFF.map(s=>[s.id,s]));
+  changes.forEach(c=>{
+    const m=(ST_ATT[c.staffId]=ST_ATT[c.staffId]||{});
+    if(c.status) m[c.dk]=c.status; else delete m[c.dk];
+  });
+  stRender();
+  if(_stCloudOk){
+    try{
+      const ups=changes.filter(c=>c.status).map(c=>({staff_id:c.staffId, att_date:c.dk, status:c.status, outlet_id:(s0.get(c.staffId)||{}).outlet_id||null, updated_at:new Date().toISOString()}));
+      if(ups.length) await sbReq('staff_attendance?on_conflict=staff_id,att_date','POST',ups,{'Prefer':'resolution=merge-duplicates,return=minimal'});
+      for(const c of changes.filter(c=>!c.status)){
+        await sbReq(`staff_attendance?staff_id=eq.${c.staffId}&att_date=eq.${c.dk}`,'DELETE');
+      }
+    }catch(e){ toast('⚠ Attendance not saved to cloud: '+e.message,'err'); }
+  }else{
+    const all=_stLocal('att')||{};
+    changes.forEach(c=>{ const m=(all[c.staffId]=all[c.staffId]||{}); if(c.status) m[c.dk]=c.status; else delete m[c.dk]; });
+    _stLocal('att',all);
+  }
+}
+
+async function stBulkMark(){
+  const dk=(document.getElementById('stBulkDate')||{}).value;
+  const st=(document.getElementById('stBulkStatus')||{}).value;
+  if(!dk){ toast('Pick a date','err'); return; }
+  if(dk.slice(0,7)!==ST_MONTH){
+    document.getElementById('stMonth').value=dk.slice(0,7);
+    await stLoadMonth();
+  }
+  const staff=_stVisibleStaff().filter(s=>!(s.joining_date && dk<String(s.joining_date).slice(0,10)));
+  if(!staff.length){ toast('No staff in view','err'); return; }
+  const already=staff.filter(s=>(ST_ATT[s.id]||{})[dk]).length;
+  if(already && !confirm(already+' of '+staff.length+' staff are already marked for '+dk+'. Overwrite all with "'+st+'"?')) return;
+  await stSetAtt(staff.map(s=>({staffId:s.id, dk, status:st})));
+  toast('✓ Marked '+staff.length+' staff as '+st+' on '+dk,'ok');
+}
+
+async function stSetAdj(staffId, field, val){
+  const a=(ST_ADJ[staffId]=ST_ADJ[staffId]||{advance:0,bonus:0,remarks:''});
+  a[field]=Math.max(0,+val||0);
+  stRender();
+  if(_stCloudOk){
+    try{
+      await sbReq('staff_payroll_adj?on_conflict=staff_id,month','POST',[{staff_id:staffId, month:ST_MONTH, advance:a.advance||0, bonus:a.bonus||0, remarks:a.remarks||null}],{'Prefer':'resolution=merge-duplicates,return=minimal'});
+    }catch(e){ toast('⚠ Not saved to cloud: '+e.message,'err'); }
+  }else{
+    const all=_stLocal('adj')||{};
+    (all[ST_MONTH]=all[ST_MONTH]||{})[staffId]=a;
+    _stLocal('adj',all);
+  }
+}
+
+// ── Add / edit staff modal ──
+function stOpenStaffModal(editId){
+  const s=editId?ST_STAFF.find(x=>x.id===editId):null;
+  const curOutlet=(document.getElementById('stOutlet')||{}).value;
+  const oOpts=OUTLETS.map(o=>`<option value="${o.id}" ${(s?s.outlet_id===o.id:curOutlet===o.id)?'selected':''}>${o.icon} ${_esc(o.name)}</option>`).join('');
+  let el=document.getElementById('stStaffModal');
+  if(!el){ el=document.createElement('div'); el.id='stStaffModal'; document.body.appendChild(el); }
+  el.style.cssText='position:fixed;inset:0;background:rgba(10,14,26,.88);z-index:10000;backdrop-filter:blur(6px);display:flex;align-items:flex-start;justify-content:center;padding:30px 16px;overflow-y:auto;';
+  el.onclick=e=>{if(e.target===el)el.remove();};
+  const f=(id,label,val,type)=>`<div class="form-group"><label class="form-label">${label}</label><input class="form-input" id="${id}" type="${type||'text'}" value="${_stA(val)}"></div>`;
+  el.innerHTML=`<div style="background:var(--sf);border:1px solid var(--bd2);border-radius:16px;max-width:480px;width:100%;padding:24px 26px;box-shadow:0 30px 80px rgba(0,0,0,.6);">
+    <h3 style="font-size:17px;font-weight:800;margin-bottom:14px;">${s?'✏️ Edit Staff':'➕ Add Staff'}</h3>
+    <div class="form-group"><label class="form-label">Outlet</label><select class="form-input" id="stfOutlet">${oOpts}</select></div>
+    ${f('stfName','Name *',s&&s.name)}
+    ${f('stfDesig','Designation (Waiter, Cook, Bartender…)',s&&s.designation)}
+    ${f('stfPhone','Phone',s&&s.phone)}
+    ${f('stfSalary','Monthly Salary (₹) *',s?s.monthly_salary:'','number')}
+    ${f('stfJoin','Joining Date (days before it are not counted)',s&&s.joining_date?String(s.joining_date).slice(0,10):'','date')}
+    <div style="display:flex;gap:8px;justify-content:space-between;margin-top:16px;flex-wrap:wrap;">
+      <div>${s?`<button class="login-btn" style="width:auto;padding:9px 14px;background:rgba(255,84,112,.15);color:#ff5470;border:1px solid rgba(255,84,112,.4);" onclick="stDeactivate('${s.id}')">🚫 Left job / remove</button>`:''}</div>
+      <div style="display:flex;gap:8px;">
+        <button class="login-btn" style="width:auto;padding:9px 16px;background:var(--sf2);color:var(--text);border:1px solid var(--bd);" onclick="document.getElementById('stStaffModal').remove()">Cancel</button>
+        <button class="login-btn" style="width:auto;padding:9px 18px;" onclick="stSaveStaff(${s?`'${s.id}'`:'null'})">💾 Save</button>
+      </div>
+    </div></div>`;
+  setTimeout(()=>document.getElementById('stfName')?.focus(),50);
+}
+
+async function stSaveStaff(editId){
+  const v=id=>(document.getElementById(id)||{}).value||'';
+  const row={outlet_id:v('stfOutlet'), name:v('stfName').trim(), designation:v('stfDesig').trim()||null,
+    phone:v('stfPhone').trim()||null, monthly_salary:+v('stfSalary')||0, joining_date:v('stfJoin')||null, active:true};
+  if(!row.name){ toast('Enter staff name','err'); return; }
+  if(!(row.monthly_salary>0)){ toast('Enter monthly salary','err'); return; }
+  if(_stCloudOk){
+    try{
+      if(editId) await sbReq('staff_master?id=eq.'+editId,'PATCH',row);
+      else await sbReq('staff_master','POST',[row]);
+      await stLoadStaff();
+    }catch(e){ toast('⚠ Could not save staff: '+e.message,'err'); return; }
+  }else{
+    if(editId){ const s=ST_STAFF.find(x=>x.id===editId); if(s) Object.assign(s,row); }
+    else ST_STAFF.push({...row, id:'local-'+Date.now().toString(36)+Math.random().toString(36).slice(2,6)});
+    _stLocal('master',ST_STAFF);
+  }
+  document.getElementById('stStaffModal')?.remove();
+  toast('✓ Staff saved','ok');
+  stRender();
+}
+
+async function stDeactivate(id){
+  const s=ST_STAFF.find(x=>x.id===id); if(!s) return;
+  if(!confirm('Mark '+s.name+' as left / remove from the sheet?\n\nPast attendance is kept; they just stop appearing.')) return;
+  s.active=false;
+  if(_stCloudOk){
+    try{ await sbReq('staff_master?id=eq.'+id,'PATCH',{active:false}); }
+    catch(e){ toast('⚠ '+e.message,'err'); return; }
+  }else _stLocal('master',ST_STAFF);
+  document.getElementById('stStaffModal')?.remove();
+  toast('Removed '+s.name,'ok');
+  stRender();
+}
+
+// ── Excel: one sheet per outlet (day grid + salary) + a Summary sheet ──
+function stExportExcel(){
+  if(typeof XLSX==='undefined'){ toast('Excel library not loaded','err'); return; }
+  const staff=_stVisibleStaff();
+  if(!staff.length){ toast('No staff to export','err'); return; }
+  const dim=_stDim(ST_MONTH);
+  const wb=XLSX.utils.book_new();
+  const summary=[['Outlet','Staff','Designation','Monthly Salary','Days in Month','Per Day','P','A','H','WO','L','Paid Days','Earned','Bonus/OT','Advance','Net Pay']];
+  OUTLETS.forEach(o=>{
+    const list=staff.filter(s=>s.outlet_id===o.id); if(!list.length) return;
+    const head=['Staff','Designation','Monthly Salary',...Array.from({length:dim},(_,i)=>String(i+1)),'P','A','H','WO','L','Paid Days','Per Day','Earned','Bonus/OT','Advance','Net Pay'];
+    const rows=list.map(s=>{
+      const c=stCalc(s), att=ST_ATT[s.id]||{};
+      summary.push([o.name,s.name,s.designation||'',+s.monthly_salary,dim,+c.perDay.toFixed(2),c.P,c.A,c.H,c.WO,c.L,c.paidDays,c.earned,c.bonus,c.advance,c.net]);
+      return [s.name,s.designation||'',+s.monthly_salary,...Array.from({length:dim},(_,i)=>att[_stDayKey(ST_MONTH,i+1)]||''),
+        c.P,c.A,c.H,c.WO,c.L,c.paidDays,+c.perDay.toFixed(2),c.earned,c.bonus,c.advance,c.net];
+    });
+    XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet([head,...rows]), o.name.replace(/[\\\/\?\*\[\]:]/g,'').slice(0,31));
+  });
+  const tot=summary.slice(1).reduce((t,r)=>{t[0]+=r[3];t[1]+=r[12];t[2]+=r[13];t[3]+=r[14];t[4]+=r[15];return t;},[0,0,0,0,0]);
+  summary.push(['TOTAL','','',tot[0],'','','','','','','','',tot[1],tot[2],tot[3],tot[4]]);
+  XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet(summary), 'Summary');
+  wb.SheetNames.unshift(wb.SheetNames.pop());   // Summary first
+  XLSX.writeFile(wb,'Staff_Attendance_Salary_'+ST_MONTH+'.xlsx');
+  toast('Excel exported ✓','ok');
+}
 
 // ════════════════════════════════════════════════════════════════════
 // 💰 FINANCE & CASH MANAGEMENT — Phase 1: Expense Ledger + Finance Dashboard
