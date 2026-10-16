@@ -2561,7 +2561,7 @@ html,body{font-family:var(--ui);letter-spacing:.1px;}
     </div>
 
     <!-- ⚡ QUICK MULTI-ENTRY — many expenses for ONE day, saved in one go -->
-    <div class="card" style="border-color:rgba(38,215,130,.45);">
+    <div class="card" id="meCard" style="border-color:rgba(38,215,130,.45);">
       <div class="card-h">
         <div>
           <span class="card-t">⚡ Quick Multi-Entry — One Day, Many Expenses</span>
@@ -21048,7 +21048,9 @@ async function meSaveAll(){
   try{
     await sbReq('finance_expenses','POST',payloads);
     const tot=lines.reduce((s,l)=>s+l.amt,0);
-    toast('✓ '+lines.length+' expense'+(lines.length>1?'s':'')+' saved — '+fI(tot)+(skipped?' · '+skipped+' incomplete line'+(skipped>1?'s':'')+' left in the grid':''),'ok');
+    const _oN=(OUTLETS.find(o=>o.id===outlet)||{}).name||outlet;
+    const _dN=new Date(date+'T12:00:00').toLocaleDateString('en-IN',{day:'2-digit',month:'short'});
+    toast('✓ '+lines.length+' expense'+(lines.length>1?'s':'')+' saved to '+_oN+' · '+_dN+' — '+fI(tot)+(skipped?' · '+skipped+' incomplete line'+(skipped>1?'s':'')+' left in the grid':''),'ok');
     // clear ONLY the saved lines; keep date/outlet and any incomplete lines
     [...body.children].forEach(tr=>{
       const cat=tr.querySelector('.me-cat')?.value?.trim();
@@ -21246,8 +21248,21 @@ function finCovPick(outletId, dk){
   const fT=document.getElementById('finExpTo'); if(fT) fT.value='';
   finExpDayFilter=dk;
   finRenderExpenses();
-  const tbl=document.getElementById('finExpBody');
-  if(tbl) tbl.closest('.card')?.scrollIntoView({behavior:'smooth',block:'start'});
+  // Point Quick Multi-Entry at the clicked outlet + day. It used to stay on
+  // today/Dwarka, so an entry made for a red cell landed on the wrong outlet.
+  try{ meInit(); }catch(e){}
+  const meD=document.getElementById('meDate'); if(meD) meD.value=dk;
+  const meO=document.getElementById('meOutlet'); if(meO) meO.value=outletId;
+  const hasEntries=FIN_EXP.some(e=>e.outlet_id===outletId && e.date && dtKey(e.date)===dk);
+  const card=hasEntries?document.getElementById('finExpBody')?.closest('.card'):document.getElementById('meCard');
+  if(card){
+    card.scrollIntoView({behavior:'smooth',block:'start'});
+    if(!hasEntries){
+      card.style.boxShadow='0 0 0 3px rgba(38,215,130,.6)';
+      setTimeout(()=>{ card.style.boxShadow=''; },1800);
+      setTimeout(()=>{ document.querySelector('#meBody .me-cat')?.focus({preventScroll:true}); },400);
+    }
+  }
 }
 function finClearDay(){ finExpDayFilter=null; finRenderExpenses(); }
 
@@ -21279,7 +21294,7 @@ function finRenderExpenses(){
   document.getElementById('finExpBadge').textContent=rows.length+' entries · '+fF(total);
 
   const body=document.getElementById('finExpBody');
-  if(!rows.length){ body.innerHTML='<tr><td colspan="9" class="empty"><b>💸</b>No expenses yet. Click ➕ Add Expense or upload an Excel.</td></tr>'; finRenderExpKpis(rows); return; }
+  if(!rows.length){ body.innerHTML='<tr><td colspan="9" class="empty"><b>💸</b>No expenses yet. Click ➕ Add Expense or upload an Excel.</td></tr>'; finRenderExpKpis(rows); try{ finRenderCoverage(); }catch(e){} return; }
   const canDel=(role==='admin');
   const groupOn=(document.getElementById('finExpGroup')||{}).checked!==false && !finExpDayFilter;
   let _lastDk=null;
