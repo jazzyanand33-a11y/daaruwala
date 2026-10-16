@@ -697,6 +697,11 @@ html,body{font-family:var(--ui);letter-spacing:.1px;}
     <div class="ltabs">
       <button class="ltab active" onclick="setMode(&#39;admin&#39;,this)" data-testid="login-admin-tab">⚙️ Admin</button>
       <button class="ltab" onclick="setMode(&#39;manager&#39;,this)" data-testid="login-manager-tab">👤 Manager</button>
+      <button class="ltab" onclick="setMode(&#39;attendance&#39;,this)" data-testid="login-attendance-tab">📋 Attendance</button>
+    </div>
+    <div class="form-group" id="userGroup" style="display:none">
+      <label class="form-label">Name</label>
+      <input type="text" class="form-input" id="userInput" placeholder="Enter name" autocomplete="username" onkeydown="if(event.key===&#39;Enter&#39;)doLogin()" data-testid="login-user-input">
     </div>
     <div class="form-group">
       <label class="form-label">Password</label>
@@ -705,7 +710,6 @@ html,body{font-family:var(--ui);letter-spacing:.1px;}
     </div>
     <button class="login-btn" onclick="doLogin()" data-testid="login-submit-btn">SIGN IN →</button>
     <div class="login-error" id="loginErr">Incorrect password. Try again.</div>
-    <div class="login-hint"><b>Admin:</b> admin@DW2024 &nbsp;·&nbsp; <b>Manager:</b> manager@DW2024</div>
   </div>
 </div>
 
@@ -2954,7 +2958,10 @@ const BRAND_ALIASES={
 // ════════════════════════════════════════════════════════════
 const CREDS={
   admin:{pwd:'admin@DW2024',role:'admin',name:'Admin'},
-  manager:{pwd:'manager@DW2024',role:'manager',name:'Manager'}
+  manager:{pwd:'manager@DW2024',role:'manager',name:'Manager'},
+  // Attendance manager: signs in with name + password and sees ONLY the
+  // Staff Attendance page (see applyRoleNav / showPage guard).
+  attendance:{user:'karam',pwd:'karam123',role:'attendance',name:'Karam'}
 };
 let OUTLETS=[
   {id:'dwarka',name:'Dwarka',icon:'🍺',color:'#ff8c1a'},
@@ -5105,13 +5112,28 @@ function setMode(m,btn){
   document.querySelectorAll('.ltab').forEach(b=>b.classList.remove('active'));
   btn.classList.add('active');
   document.getElementById('pwdInput').value='';
+  document.getElementById('userInput').value='';
+  document.getElementById('userGroup').style.display=CREDS[m]&&CREDS[m].user?'block':'none';
   document.getElementById('loginErr').style.display='none';
+}
+
+// Attendance-only accounts see just the Staff Attendance tab; everyone else
+// gets the full sidebar and period filter back.
+function applyRoleNav(r){
+  const limited=r==='attendance';
+  document.querySelectorAll('#sidebar .nav-tab').forEach(b=>{
+    if(b.id==='upTab'||b.id==='cloudTab') return;
+    b.style.display=limited&&b.dataset.testid!=='nav-staff'?'none':'';
+  });
+  document.querySelectorAll('#sidebar .snav-group').forEach(g=>{ g.style.display=limited?'none':''; });
+  const fb=document.querySelector('.filter-bar'); if(fb) fb.style.display=limited?'none':'';
 }
 
 function doLogin(){
   const pwd=document.getElementById('pwdInput').value.trim();
+  const user=document.getElementById('userInput').value.trim().toLowerCase();
   const c=CREDS[lMode];
-  if(pwd===c.pwd){
+  if(pwd===c.pwd&&(!c.user||user===c.user)){
     role=c.role;
     document.getElementById('loginScreen').style.display='none';
     document.getElementById('appShell').style.display='block';
@@ -5119,6 +5141,15 @@ function doLogin(){
     const rp=document.getElementById('rolePill');rp.textContent=c.role;rp.className='role-pill '+c.role;
     const upTab=document.getElementById('upTab');
     const cloudTab=document.getElementById('cloudTab');
+    applyRoleNav(c.role);
+    if(c.role==='attendance'){
+      if(upTab) upTab.style.display='none';
+      if(cloudTab) cloudTab.style.display='none';
+      // Skip the full sales/inventory load — this account only needs outlets + staff.
+      showPage('staff',document.querySelector('#sidebar [data-testid="nav-staff"]'));
+      _outletsCloudSync().catch(()=>{}).then(()=>{ try{ buildStaffPage(); }catch(e){} });
+      return;
+    }
     if(c.role==='admin'){
       if(upTab) upTab.style.display='flex';
       if(cloudTab) cloudTab.style.display='flex';
@@ -5194,6 +5225,8 @@ async function logout(){
   Object.values(chartRefs).forEach(c=>{try{c.destroy();}catch(e){}});
   chartRefs={};
   document.getElementById('pwdInput').value='';
+  document.getElementById('userInput').value='';
+  applyRoleNav(null);
   document.getElementById('appShell').style.display='none';
   document.getElementById('loginScreen').style.display='flex';
 }
@@ -5202,6 +5235,7 @@ async function logout(){
 // PAGE NAVIGATION
 // ════════════════════════════════════════════════════════════
 function showPage(p,btn){
+  if(role==='attendance'&&p!=='staff') return;
   const target=document.getElementById('page-'+p);
   if(!target){console.warn('showPage: page-'+p+' not found');return;}
   document.querySelectorAll('.page').forEach(el=>el.classList.remove('active'));
