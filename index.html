@@ -2695,7 +2695,10 @@ html,body{font-family:var(--ui);letter-spacing:.1px;}
         <h2 style="font-size:20px;font-weight:800;">💵 Cash Management &amp; Tracking</h2>
         <p style="font-size:12px;color:var(--mu2);margin-top:4px;">Live cash-in-hand per outlet. Set an opening balance, then every day carries forward: + cash sale, float, scrap, received · − cash expenses, deposits, transfers.</p>
       </div>
-      <select id="cashOutletSel" class="date-inp" style="font-size:12px;padding:8px 14px;border-radius:8px;min-width:160px;" onchange="cashRenderOutlet()"></select>
+      <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;">
+        <button class="login-btn" style="width:auto;padding:9px 16px;margin-top:0;" onclick="cashOpenBulkDayModal()" data-testid="cash-bulk-btn">🗓 All Outlets — Daily Entry</button>
+        <select id="cashOutletSel" class="date-inp" style="font-size:12px;padding:8px 14px;border-radius:8px;min-width:160px;" onchange="cashRenderOutlet()"></select>
+      </div>
     </div>
 
     <!-- Cash-in-hand across all outlets -->
@@ -22261,6 +22264,86 @@ async function cashSaveDay(oid){
     hideLoad();
     document.getElementById('cashDayModal').remove();
     toast('Cash entry saved ✓','ok');
+    cashRenderOverview(); cashRenderOutlet();
+  }catch(e){ hideLoad(); err.textContent='Save failed: '+e.message; }
+}
+
+// ── All-outlets daily entry: one date, one row per outlet, one save ──
+// Only rows you actually type in are saved, so untouched outlets keep their
+// auto cash-sale figure (a saved row freezes the sale as a manual value).
+const CASH_BULK_FIELDS=[
+  {k:'sale',lbl:'Cash Sale'},{k:'recv',lbl:'Received +'},{k:'float',lbl:'Float +'},{k:'scrap',lbl:'Scrap +'},
+  {k:'dep',lbl:'Bank Deposit −'},{k:'trf',lbl:'Transfer Out −'},{k:'counted',lbl:'Counted 🔢'}
+];
+function cashOpenBulkDayModal(dateKey){
+  const dk=dateKey||dtKey(new Date());
+  let el=document.getElementById('cashBulkModal');
+  if(!el){ el=document.createElement('div'); el.id='cashBulkModal'; document.body.appendChild(el); }
+  el.style.cssText='position:fixed;inset:0;background:rgba(10,14,26,.88);z-index:10000;backdrop-filter:blur(6px);display:flex;align-items:flex-start;justify-content:center;padding:30px 16px;overflow-y:auto;';
+  el.onclick=e=>{if(e.target===el)el.remove();};
+  const inp='width:100%;min-width:84px;padding:6px 8px;font-size:12px;';
+  const rows=OUTLETS.map(o=>{
+    const ex0=CASH_ROWS.find(r=>r.outlet_id===o.id&&r.date===dk);
+    const ex=ex0&&ex0.extras?ex0.extras:{};
+    const autoSale=cashAutoSaleForDay(o.id,dk);
+    const v={sale:ex0?(ex0.cash_sale||0):autoSale, recv:ex0?ex0.cash_received||'':'', float:ex.float||'', scrap:ex.scrap||'',
+             dep:ex0?ex0.cash_deposit||'':'', trf:ex0?ex0.cash_transfer||'':'', counted:ex.counted!=null?ex.counted:''};
+    const status=ex0?'<span style="color:var(--a3)">✎ saved</span>':(autoSale?'<span style="color:var(--mu)">⟳ auto</span>':'');
+    const noOpen=CASH_OPENING[o.id]?'':'<div style="font-size:9.5px;color:#ffb020;">no opening balance yet</div>';
+    return `<tr data-oid="${o.id}">
+      <td style="white-space:nowrap;font-weight:700;">${o.icon} ${_esc(o.name)}<div style="font-size:9.5px;font-weight:400;">${status}</div>${noOpen}</td>
+      ${CASH_BULK_FIELDS.map(f=>`<td><input type="number" step="0.01" class="form-input" style="${inp}" data-f="${f.k}" value="${v[f.k]}" oninput="this.closest('tr').dataset.dirty='1';this.closest('tr').style.background='rgba(255,140,26,.07)'"></td>`).join('')}
+      <td class="num" style="color:#ff5b6e;white-space:nowrap;">${fN(cashExpensesForDay(o.id,dk))}</td>
+    </tr>`;
+  }).join('');
+  el.innerHTML=`<div style="background:var(--sf);border:1px solid var(--bd2);border-radius:16px;max-width:1100px;width:100%;padding:22px 24px;" onclick="event.stopPropagation()">
+    <div style="font-size:11px;color:var(--a);text-transform:uppercase;letter-spacing:1.2px;font-weight:700;">Cash · All Outlets</div>
+    <h2 style="font-size:19px;font-weight:800;margin-top:4px;">🗓 Daily Cash Entry — every outlet at once</h2>
+    <div style="display:flex;gap:12px;align-items:flex-end;flex-wrap:wrap;margin:12px 0 10px;">
+      <div class="form-group" style="margin:0;"><label class="form-label">Date *</label><input type="date" class="form-input" id="cbDate" value="${dk}" onchange="cashOpenBulkDayModal(this.value)"></div>
+      <div style="font-size:11px;color:var(--mu2);max-width:560px;line-height:1.6;">Cash Sale is pre-filled with that day's pure-cash Petpooja sales (⟳) or your saved figure (✎). Fill in what you need; <b style="color:var(--text)">only outlets you type in are saved</b> (highlighted). Cash expenses come from the Expense Ledger.</div>
+    </div>
+    <div style="overflow-x:auto;">
+      <table class="tbl" style="font-size:11px;">
+        <thead><tr><th>Outlet</th>${CASH_BULK_FIELDS.map(f=>`<th>${f.lbl}</th>`).join('')}<th style="text-align:right">Cash Exp −</th></tr></thead>
+        <tbody id="cbBody">${rows}</tbody>
+      </table>
+    </div>
+    <div id="cbErr" style="color:var(--rd,#ff5b6e);font-size:11.5px;min-height:14px;margin-top:6px;"></div>
+    <div style="display:flex;gap:10px;margin-top:6px;">
+      <button class="login-btn" style="flex:1;margin-top:0;" onclick="cashSaveBulkDay()">💾 Save All Outlets</button>
+      <button class="rep-btn" onclick="document.getElementById('cashBulkModal').remove()">Cancel</button>
+    </div>
+  </div>`;
+}
+
+async function cashSaveBulkDay(){
+  const dk=document.getElementById('cbDate').value;
+  const err=document.getElementById('cbErr');
+  if(!dk){ err.textContent='Pick a date'; return; }
+  const trs=[...document.querySelectorAll('#cbBody tr[data-dirty="1"]')];
+  if(!trs.length){ err.textContent='Nothing changed — type an amount for at least one outlet.'; return; }
+  const payloads=trs.map(tr=>{
+    const oid=tr.dataset.oid;
+    const raw=k=>(tr.querySelector(`[data-f="${k}"]`)||{}).value;
+    const num=k=>{const v=parseFloat(raw(k));return isNaN(v)?0:v;};
+    const prev=CASH_ROWS.find(r=>r.outlet_id===oid&&r.date===dk);
+    const prevEx=prev&&prev.extras?prev.extras:{};
+    const extras={...prevEx, float:num('float'), scrap:num('scrap'), saleAuto:false, counted:raw('counted')===''?null:num('counted')};
+    return {cb_date:dk, month:monthKey(new Date(dk+'T00:00:00')), outlet_id:oid,
+      opening_cash:0, cash_sale:num('sale'), cash_received:num('recv'),
+      cash_expenses:cashExpensesForDay(oid,dk),
+      cash_deposit:num('dep'), cash_transfer:num('trf'), closing_cash:0,
+      remarks:JSON.stringify(extras), created_by:role||'admin'};
+  });
+  showLoad('Saving '+payloads.length+' cash entr'+(payloads.length>1?'ies':'y')+'…');
+  try{
+    await sbReq('finance_cashbook?on_conflict=outlet_id,cb_date','POST',payloads,{'Prefer':'resolution=merge-duplicates,return=minimal'});
+    try{ if(typeof finAuditLog==='function') payloads.forEach(p=>finAuditLog('EDIT','cashbook',p.outlet_id+'/'+dk,p.outlet_id,{sale:p.cash_sale,dep:p.cash_deposit,trf:p.cash_transfer,bulk:true})); }catch(e){}
+    await cashLoad();
+    hideLoad();
+    document.getElementById('cashBulkModal').remove();
+    toast('✓ Cash saved for '+payloads.length+' outlet'+(payloads.length>1?'s':'')+' · '+fD(dk),'ok');
     cashRenderOverview(); cashRenderOutlet();
   }catch(e){ hideLoad(); err.textContent='Save failed: '+e.message; }
 }
