@@ -20798,7 +20798,7 @@ function stOpenStaffModal(editId){
     ${f('stfName','Name *',s&&s.name)}
     ${f('stfDesig','Designation (Waiter, Cook, Bartender…)',s&&s.designation)}
     ${f('stfPhone','Phone',s&&s.phone)}
-    ${f('stfSalary','Monthly Salary (₹) *',s?s.monthly_salary:'','number')}
+    ${f('stfSalary','Monthly Salary (₹) — optional, can be added later',s?s.monthly_salary:'','number')}
     ${f('stfJoin','Joining Date (days before it are not counted)',s&&s.joining_date?String(s.joining_date).slice(0,10):'','date')}
     <div style="display:flex;gap:8px;justify-content:space-between;margin-top:16px;flex-wrap:wrap;">
       <div>${s?`<button class="login-btn" style="width:auto;padding:9px 14px;background:rgba(255,84,112,.15);color:#ff5470;border:1px solid rgba(255,84,112,.4);" onclick="stDeactivate('${s.id}')">🚫 Left job / remove</button>`:''}</div>
@@ -20815,7 +20815,7 @@ async function stSaveStaff(editId){
   const row={outlet_id:v('stfOutlet'), name:v('stfName').trim(), designation:v('stfDesig').trim()||null,
     phone:v('stfPhone').trim()||null, monthly_salary:+v('stfSalary')||0, joining_date:v('stfJoin')||null, active:true};
   if(!row.name){ toast('Enter staff name','err'); return; }
-  if(!(row.monthly_salary>0)){ toast('Enter monthly salary','err'); return; }
+  if(row.monthly_salary<0){ toast('Salary cannot be negative','err'); return; }
   if(_stCloudOk){
     try{
       if(editId) await sbReq('staff_master?id=eq.'+editId,'PATCH',row);
