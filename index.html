@@ -1404,6 +1404,9 @@ html,body{font-family:var(--ui);letter-spacing:.1px;}
       </div>
     </div>
 
+    <!-- Same brand listed twice in this month's register -->
+    <div class="card" id="invDupCard" style="display:none;border-color:rgba(255,176,32,.45);"></div>
+
     <!-- Main register table -->
     <div class="card">
       <div class="card-h">
@@ -15954,13 +15957,13 @@ function _computeSoldFromSales(outletId, monthKey){
     let nameMatches=invBrandRows.filter(b=>_normName(b.brand||'')===gNorm);
     if(nameMatches.length){
       if(guessSize) return nameMatches.find(b=>(b.size||0)===guessSize)||null; // size known — must match, or it's a genuine non-match, even with only one candidate
-      return nameMatches.length===1?nameMatches[0]:null; // size unknown — safe to use only if there's no ambiguity to begin with
+      return new Set(nameMatches.map(b=>b.size||0)).size===1?nameMatches[0]:null; // size unknown — safe only when every match is the same size (a duplicate row, not a different SKU)
     }
     const gCanon=canonBrand(guessBrand).toUpperCase();
     let canonMatches=invBrandRows.filter(b=>canonBrand(b.brand||'').toUpperCase()===gCanon);
     if(canonMatches.length){
       if(guessSize) return canonMatches.find(b=>(b.size||0)===guessSize)||null;
-      return canonMatches.length===1?canonMatches[0]:null;
+      return new Set(canonMatches.map(b=>b.size||0)).size===1?canonMatches[0]:null;
     }
     const up=guessBrand.toUpperCase().trim();
     const rWords=up.replace(/[^A-Z0-9 ]/g,'').split(' ').filter(w=>w.length>2);
@@ -16292,9 +16295,33 @@ function _renderInventoryCore(outletId){
   const soldMap=computeSoldFromSales(outletId, invActiveMonth);
   const hasSalesData=(oData[outletId]||[]).some(r=>r.month===invActiveMonth);
 
+  // Which POS items feed each register row: record every sold-map key that
+  // matchSold actually reads with qty, then look those keys up in the trace.
+  const _keyItems={};
+  (soldMap.__trace||[]).forEach(t=>{
+    if(t.ok===false||!t.bottles)return;
+    const b=String(t.brand||'').toUpperCase().trim().replace(/\s*&\s*/g,' & ').replace(/\s+/g,' ');
+    const k=t.size?b+'_'+t.size:b;
+    (_keyItems[k]=_keyItems[k]||new Set()).add(String(t.item).split(' → ')[0]);
+  });
+  const _claimedAll=new Set();
+  function _soldWithKeys(b){
+    const keys=new Set();
+    const px=new Proxy(soldMap,{get(t,k){ if(typeof k==='string'&&!k.startsWith('__')&&t[k]>0) keys.add(k); return t[k]; }});
+    const sold=matchSold(b.brand, b.size, px);
+    keys.forEach(k=>_claimedAll.add(k));
+    const items=new Set(); keys.forEach(k=>(_keyItems[k]||[]).forEach(i=>items.add(i)));
+    return {sold, posItems:[...items]};
+  }
+  // Every register row claims its keys (not just the filtered view) so the
+  // "mapped but not in register" list below is right whatever filter is on.
+  brands.forEach(b=>{ if(!displayBrands.includes(b)) _soldWithKeys(b); });
+
   // Enrich each brand with auto-calculated sales
   const analyzed=displayBrands.map(b=>{
-    const sold=matchSold(b.brand, b.size, soldMap);
+    const _sk=_soldWithKeys(b);
+    const sold=_sk.sold;
+    b=Object.assign({},b,{posItems:_sk.posItems});
     const balance=Math.max(0, (b.openBal||0)+(b.received||0)-sold);
     const [y,m]=invActiveMonth.split('-');
     const daysInMonth=new Date(y,m,0).getDate();
@@ -16368,10 +16395,17 @@ function _renderInventoryCore(outletId){
     const lastRcvd=lastHist?lastHist.date:'—';
     const lastNote=lastHist?(lastHist.note||''):'';
     const lastIsTp=/^TP\s+\S/i.test(lastNote);
-    return `<tr>
+    // Link status = which Petpooja items actually deduct from THIS row. (It
+    // used to look the register brand up as if it were a Petpooja item name,
+    // so most brands were labelled "unmapped" even while their sales deducted.)
+    const _pi=b.posItems||[];
+    const _link=_pi.length
+      ? `<span style="color:#26d782;font-weight:700" title="${_invH('Deducts sales of:\n'+_pi.join('\n'))}">🔗 ${_pi.length} POS item${_pi.length>1?'s':''}</span>`
+      : (hasSalesData?'<span style="color:var(--mu);font-style:italic" title="No Petpooja item sold this month deducts from this brand">no sales this month</span>':'');
+    return `<tr data-inv-brand="${_invH(b.brand||'')}" data-inv-size="${b.size||0}" data-inv-outlet="${outletId}" data-inv-month="${invActiveMonth}">
       <td>
-        <div style="font-weight:700">${b.brand}</div>
-        <div style="font-size:9px;color:var(--mu2);margin-top:1px">${(function(){const m=resolveMasterItem(b.brand.toLowerCase());return m?'<span style="color:var(--a4);font-weight:700">'+m.code+'</span> · '+m.unit:'<span style="color:var(--mu);font-style:italic">unmapped</span>';})()}</div>
+        <div style="font-weight:700">${_invH(b.brand)}</div>
+        <div style="font-size:9px;color:var(--mu2);margin-top:1px">${_link}</div>
       </td>
       <td><span style="font-size:10px;color:var(--mu2);font-weight:700">${b.category}</span></td>
       <td class="num">${b.size?b.size+'ml':'-'}</td>
@@ -16383,7 +16417,7 @@ function _renderInventoryCore(outletId){
       <td class="num" style="color:${sc[b.status]||'inherit'};font-weight:700">${b.balance%1===0?fN(b.balance):b.balance.toFixed(2)}</td>
       <td class="num">${fI(b.stockValue)}</td>
       <td><span style="color:${sc[b.status]};font-weight:700;font-size:10px">${sl[b.status]}</span></td>
-      ${role==='admin'?`<td style="white-space:nowrap"><button onclick="openEditBrandModal('${outletId}','${invActiveMonth}','${encodeURIComponent(b.brand||'')}',${b.size||0})" style="background:none;border:none;color:var(--a4);cursor:pointer;font-size:13px;padding:2px 6px;" title="Edit brand / category / size">✎</button><button onclick="deleteBrand('${outletId}','${invActiveMonth}','${encodeURIComponent(b.brand||'')}',${b.size||0})" style="background:none;border:none;color:var(--mu);cursor:pointer;font-size:13px;padding:2px 6px;" title="Remove brand">🗑</button></td>`:'<td></td>'}
+      ${role==='admin'?`<td style="white-space:nowrap"><button onclick="editBrandBtn(this)" style="background:none;border:none;color:var(--a4);cursor:pointer;font-size:13px;padding:2px 6px;" title="Edit brand / category / size">✎</button><button onclick="deleteBrandBtn(this)" style="background:none;border:none;color:var(--mu);cursor:pointer;font-size:13px;padding:2px 6px;" title="Remove brand">🗑</button></td>`:'<td></td>'}
     </tr>`;
   }).join('') : `<tr><td colspan="12" class="empty">
     <b>📦</b>
@@ -16411,7 +16445,14 @@ function _renderInventoryCore(outletId){
   })();
 
   // ── Variance Panel — Petpooja items that couldn't be matched to any inventory brand ──
-  buildVariancePanel(soldMap);
+  // Sales that resolved to a brand, but no register row picked them up —
+  // until now these were silently never deducted from any stock.
+  const _orphans=Object.keys(soldMap).filter(k=>!k.startsWith('__')&&soldMap[k]>0.001&&!_claimedAll.has(k)).map(k=>{
+    const m=k.match(/^(.*)_(\d+)$/);
+    return {key:k, brand:m?m[1]:k, size:m?+m[2]:0, qty:soldMap[k], items:[...(_keyItems[k]||[])]};
+  }).sort((a,b)=>b.qty-a.qty);
+  buildVariancePanel(soldMap, _orphans, brands.length);
+  buildInvDupCard(outletId, invActiveMonth);
 
   // Keep the Stock Variance tab (🧮) in sync too — it was only refreshing on
   // manual navigation, so a Recover Purchases / TP approval / brand edit
@@ -16422,21 +16463,33 @@ function _renderInventoryCore(outletId){
 }
 
 // ── Build variance/unmatched items panel ──
-function buildVariancePanel(soldMap){
+function buildVariancePanel(soldMap, orphans, regCount){
   const el=document.getElementById('invVarianceCard');
   if(!el)return;
   const unmatched=soldMap.__unmatched||{};
   const items=Object.values(unmatched).filter(v=>v.qty>0).sort((a,b)=>b.qty-a.qty);
+  orphans=orphans||[];
   const badge=document.getElementById('invVarianceBadge');
-  if(!items.length){
+  if(!items.length&&!orphans.length){
     if(badge) badge.textContent='0 items';
     document.querySelector('#invVarianceTbl tbody').innerHTML='<tr><td colspan="4" class="empty">✅ All liquor items matched — no variance</td></tr>';
     el.style.borderColor='rgba(38,215,130,.3)';
     return;
   }
-  if(badge) badge.textContent=items.length+' unmatched item'+(items.length===1?'':'s');
+  if(badge) badge.textContent=(items.length?items.length+' unmapped':'')+(items.length&&orphans.length?' · ':'')+(orphans.length?orphans.length+' not in register':'');
   el.style.borderColor='rgba(255,212,77,.4)';
-  document.querySelector('#invVarianceTbl tbody').innerHTML=items.map(v=>`
+  // Mapped, but the brand isn't in this month's register
+  const orphanHead=orphans.length?`<tr><td colspan="4" style="background:rgba(255,84,112,.08);font-size:11px;color:#ff5470;font-weight:800;padding:8px 10px">
+      ${regCount?'🔗 MAPPED, but no matching brand in this register — NOT deducted':'📭 No stock register for this month — none of these mapped sales are deducted. Use 🔁 Carry Forward to create it.'}</td></tr>`:'';
+  const orphanRows=orphans.map(o=>`<tr>
+      <td><div style="font-weight:700">${_invH(o.brand)}${o.size?' <span style="color:var(--mu2);font-weight:400">'+o.size+'ml</span>':' <span style="color:var(--mu2);font-weight:400">(pegs, full bottle)</span>'}</div>
+        <div style="font-size:9px;color:var(--mu2);margin-top:1px">${_invH(o.items.slice(0,4).join(' · '))}${o.items.length>4?' +'+(o.items.length-4)+' more':''}</div></td>
+      <td class="num" style="color:#ff5470;font-weight:700">${fQty(o.qty)} btl</td>
+      <td class="num" style="font-size:11px;color:var(--mu2)">—</td>
+      <td style="text-align:right">${regCount&&role==='admin'?`<button data-ob="${_invH(o.brand)}" data-os="${o.size||''}" onclick="openAddBrandModal();document.getElementById('abBrandName').value=this.dataset.ob;document.getElementById('abSize').value=this.dataset.os;" title="Add this brand to the register so these sales deduct — or fix the Petpooja item's mapping if the brand is already listed under another name" style="background:rgba(38,215,130,.1);border:1px solid rgba(38,215,130,.4);color:#26d782;padding:4px 9px;border-radius:6px;font-family:inherit;font-size:10px;font-weight:800;cursor:pointer;white-space:nowrap;">➕ Add to register</button>`:''}</td>
+    </tr>`).join('');
+  const unmHead=items.length&&orphans.length?`<tr><td colspan="4" style="background:rgba(255,212,77,.08);font-size:11px;color:#ffd24d;font-weight:800;padding:8px 10px">❓ UNMAPPED Petpooja items — no brand found</td></tr>`:'';
+  document.querySelector('#invVarianceTbl tbody').innerHTML=orphanHead+orphanRows+unmHead+items.map(v=>`
     <tr>
       <td>
         <div style="font-weight:600">${v.item}</div>
@@ -16458,28 +16511,103 @@ function _findBrandIdx(outletId, monthKey, brandName, size){
   const sz=+size||0;
   return list.findIndex(b=>String(b.brand||'').toLowerCase()===nm && (+b.size||0)===sz);
 }
+// HTML-escape for inventory cells and attributes. Not _esc: a later script
+// redefines _esc to also turn ' into \' (for onclick strings), which put
+// literal backslashes into names like DEWAR'S.
+function _invH(s){return String(s==null?'':s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');}
+// Brand names arrive with stray escape backslashes ("DEWAR\'S") from older
+// saves — strip them so the same brand isn't stored under two spellings.
+function _cleanBrandName(s){
+  return String(s||'').replace(/\\+/g,'').replace(/\s+/g,' ').trim();
+}
+// Loose identity for spotting the SAME brand typed differently in one
+// register: case, apostrophes, "-" tails, an "180 ML" inside the name and a
+// plural/possessive S are ignored. Size is part of the key — 180ml and 750ml
+// are separate stock lines.
+function _invDupKey(brand,size){
+  const words=String(canonBrand(_cleanBrandName(brand))||'').toUpperCase()
+    .replace(/\b\d+\s*ML\b/g,' ').replace(/'S\b/g,'').replace(/[^A-Z0-9 ]/g,' ')
+    .split(/\s+/).filter(Boolean).map(w=>w.length>3?w.replace(/S$/,''):w);
+  return words.join('')+'|'+(+size||0);
+}
+function _invDupGroups(outletId, monthKey){
+  const list=(INV_DSR[outletId]&&INV_DSR[outletId][monthKey])||[];
+  const g={};
+  list.forEach(b=>{const k=_invDupKey(b.brand,b.size);(g[k]=g[k]||[]).push(b);});
+  return Object.values(g).filter(a=>a.length>1);
+}
 
 // ── Delete a brand from inventory ──
+// Buttons pass the row's position + name; the name is re-checked so a list
+// that changed underneath (another save) can never delete the wrong row.
+// (The old onclick put the brand name inside a quoted JS string, so any name
+// with an apostrophe — DEWAR'S, TEACHER'S — broke the button completely.)
+function _invBtn(el){
+  const tr=el.closest('[data-inv-brand]');
+  return tr?{brand:tr.dataset.invBrand,size:+tr.dataset.invSize||0,outletId:tr.dataset.invOutlet,monthKey:tr.dataset.invMonth}:null;
+}
+function deleteBrandBtn(el){const r=_invBtn(el);if(r)deleteBrand(r.outletId,r.monthKey,encodeURIComponent(r.brand),r.size);}
+function editBrandBtn(el){const r=_invBtn(el);if(r)openEditBrandModal(r.outletId,r.monthKey,encodeURIComponent(r.brand),r.size);}
 async function deleteBrand(outletId, monthKey, brandName, size){
-  const idx=_findBrandIdx(outletId, monthKey, decodeURIComponent(brandName), size);
+  if(role!=='admin'){toast('Only admin can delete brands','err');return;}
+  const name=decodeURIComponent(brandName);
+  const idx=_findBrandIdx(outletId, monthKey, name, size);
   if(idx<0){toast('Brand not found','err');return;}
-  if(!confirm('Remove this brand from inventory?')) return;
-  let monthEmptied=false;
-  if(INV_DSR[outletId]&&INV_DSR[outletId][monthKey]){
-    INV_DSR[outletId][monthKey].splice(idx,1);
-    if(!INV_DSR[outletId][monthKey].length){ delete INV_DSR[outletId][monthKey]; monthEmptied=true; }
-    if(!Object.keys(INV_DSR[outletId]).length) delete INV_DSR[outletId];
-  }
+  const b=INV_DSR[outletId][monthKey][idx];
+  if((b.received||0)>0||(b.history&&b.history.length)){
+    if(!confirm('⚠ "'+b.brand+'" has '+fN(b.received||0)+' bottles RECEIVED this month (TP history).\n\nDeleting it also deletes that received stock. To keep it, use 🧹 Merge in the Duplicates card instead.\n\nDelete anyway?'))return;
+  } else if(!confirm('Remove "'+b.brand+'"'+(b.size?' ('+b.size+'ml)':'')+' from inventory?')) return;
+  INV_DSR[outletId][monthKey].splice(idx,1);
+  if(!INV_DSR[outletId][monthKey].length) delete INV_DSR[outletId][monthKey];
   invalidateSoldCache();
-  // If that was the last brand, the month no longer exists locally at all —
-  // sbSaveInv() only re-syncs months still present in INV_DSR, so it would
-  // never tell the cloud this month is now empty. Delete it explicitly.
-  if(monthEmptied){
-    await sbReq('inventory_dsr?outlet_id=eq.'+outletId+'&month=eq.'+monthKey, 'DELETE').catch(()=>{});
-  }
-  await sbSaveInv();
+  try{
+    await sbSaveInvMonth(outletId, monthKey);   // an emptied month is deleted from the cloud too
+    toast('Brand removed','ok');
+  }catch(e){ toast('⚠ Removed here but cloud save failed: '+e.message+' — reload and try again','err'); }
   renderInventory(outletId);
-  toast('Brand removed','ok');
+}
+
+// ── Merge duplicate brand rows into one ──
+// Opening + received add up, TP history is combined, and the kept row's
+// name/category win (MRP falls back to any row that has one). The other rows
+// are removed, so their stock and sales are no longer counted twice.
+async function mergeInvDuplicates(outletId, monthKey, groupIdx, keepIdx){
+  if(role!=='admin'){toast('Only admin can merge brands','err');return;}
+  const groups=_invDupGroups(outletId, monthKey);
+  const grp=groups[groupIdx]; if(!grp){toast('Duplicates changed — refresh the page','err');return;}
+  const keep=grp[keepIdx]; if(!keep)return;
+  const others=grp.filter(x=>x!==keep);
+  const sum=(f)=>grp.reduce((s,x)=>s+(+x[f]||0),0);
+  if(!confirm('🧹 MERGE into "'+keep.brand+'"'+(keep.size?' ('+keep.size+'ml)':'')+'\n\n'+grp.map(x=>'• '+x.brand+' · '+(x.category||'')+' · open '+fN(x.openBal||0)+' · received '+fN(x.received||0)).join('\n')+'\n\nResult: opening '+fN(sum('openBal'))+' · received '+fN(sum('received'))+'\nThe other '+others.length+' row(s) will be removed.\n\nContinue?'))return;
+  keep.openBal=Math.round(sum('openBal')*100)/100;
+  keep.received=Math.round(sum('received')*100)/100;
+  keep.history=[].concat(...grp.map(x=>x.history||[])).sort((a,b)=>String(a.date||'').localeCompare(String(b.date||'')));
+  if(!(keep.mrp>0)){const m=grp.find(x=>x.mrp>0);if(m)keep.mrp=m.mrp;}
+  keep.brand=_cleanBrandName(keep.brand);
+  const list=INV_DSR[outletId][monthKey];
+  INV_DSR[outletId][monthKey]=list.filter(x=>!others.includes(x));
+  invalidateSoldCache();
+  try{
+    await sbSaveInvMonth(outletId, monthKey);
+    toast('✓ Merged '+grp.length+' rows into '+keep.brand,'ok');
+  }catch(e){ toast('⚠ Merged here but cloud save failed: '+e.message,'err'); }
+  renderInventory(outletId);
+}
+function buildInvDupCard(outletId, monthKey){
+  const el=document.getElementById('invDupCard'); if(!el)return;
+  const groups=_invDupGroups(outletId, monthKey);
+  if(!groups.length){el.style.display='none';el.innerHTML='';return;}
+  const isAdmin=role==='admin';
+  el.style.display='block';
+  el.innerHTML=`<div class="card-h"><div><span class="card-t">🧹 Duplicate Brands in this Register</span>
+    <div style="font-size:11px;color:var(--mu2);margin-top:3px;">The same brand + size is listed more than once (different spelling). Each copy deducts the SAME sales, so stock is double-counted. ${isAdmin?'Pick the row to keep — the others are merged into it (opening + received added, TP history kept).':'Ask an admin to merge these.'}</div></div>
+    <span class="card-b" style="color:#ffb020">${groups.length} group${groups.length>1?'s':''}</span></div>
+    <div style="overflow-x:auto"><table class="tbl" style="font-size:11px"><thead><tr><th>Brand as written</th><th>Cat</th><th style="text-align:right">Size</th><th style="text-align:right">Opening</th><th style="text-align:right">Received</th><th style="text-align:right">MRP</th><th></th></tr></thead><tbody>
+    ${groups.map((g,gi)=>g.map((b,bi)=>`<tr style="${bi===0?'border-top:2px solid rgba(255,176,32,.35)':''}">
+      <td><b>${_invH(b.brand)}</b></td><td>${_invH(b.category||'')}</td><td class="num">${b.size?b.size+'ml':'-'}</td>
+      <td class="num">${fN(b.openBal||0)}</td><td class="num">${b.received?'+'+fN(b.received):'-'}</td><td class="num">${b.mrp?fF(b.mrp):'-'}</td>
+      <td>${isAdmin?`<button onclick="mergeInvDuplicates('${outletId}','${monthKey}',${gi},${bi})" style="background:rgba(38,215,130,.12);border:1px solid rgba(38,215,130,.4);color:#26d782;padding:3px 9px;border-radius:6px;font-family:inherit;font-size:10px;font-weight:800;cursor:pointer;white-space:nowrap">✓ Keep this, merge others</button>`:''}</td>
+    </tr>`).join('')).join('')}</tbody></table></div>`;
 }
 
 // ── Edit Brand Modal — fix wrong category, name, size, or MRP ──
@@ -16511,7 +16639,7 @@ async function editBrandSubmit(){
   const idx=_findBrandIdx(outletId, monthKey, origBrand, origSize);
   const b=idx>=0?list[idx]:null;
   if(!b){toast('Brand no longer exists','err');closeEditBrandModal();return;}
-  const name=document.getElementById('ebBrandName').value.trim();
+  const name=_cleanBrandName(document.getElementById('ebBrandName').value);
   const size=parseFloat(document.getElementById('ebSize').value)||0;
   const cat=document.getElementById('ebCat').value;
   const mrp=parseFloat(document.getElementById('ebMrp').value)||0;
@@ -16525,7 +16653,7 @@ async function editBrandSubmit(){
   invalidateSoldCache(); // name/size may have changed — recompute POS-sale matching too
   toast('Updated '+name,'ok');
   closeEditBrandModal();
-  await sbSaveInv();
+  try{ await sbSaveInvMonth(outletId, monthKey); }catch(e){ toast('⚠ Cloud save failed: '+e.message,'err'); }
   renderInventory(outletId);
 }
 
@@ -16544,7 +16672,7 @@ function openAddBrandModal(){
 function closeAddBrandModal(){document.getElementById('addBrandModal').style.display='none';}
 
 async function addBrandSubmit(){
-  const name=document.getElementById('abBrandName').value.trim();
+  const name=_cleanBrandName(document.getElementById('abBrandName').value);
   const size=parseFloat(document.getElementById('abSize').value)||0;
   const cat=document.getElementById('abCat').value;
   const mrp=parseFloat(document.getElementById('abMrp').value)||0;
@@ -16856,17 +16984,38 @@ async function receivePackageSubmit(){
 }
 
 // ── Supabase save/load for inventory ──
-async function sbSaveInv(){
-  const outletIds=Object.keys(INV_DSR);
+// Saves are queued one after another. Two saves running at once (e.g. a
+// delete followed quickly by an edit) used to interleave DELETE, DELETE,
+// POST, POST — writing every brand of the month twice, which is where
+// "duplicate brands that come back after deleting" came from.
+let _invSaveChain=Promise.resolve();
+function sbSaveInv(){
+  const run=_invSaveChain.then(()=>_sbSaveInvNow(null,null));
+  _invSaveChain=run.catch(()=>{});
+  return run;
+}
+// Save ONE outlet+month only — what a single brand delete/edit/merge needs,
+// instead of rewriting every month of every outlet.
+function sbSaveInvMonth(oid,m){
+  const run=_invSaveChain.then(()=>_sbSaveInvNow(oid,m));
+  _invSaveChain=run.catch(()=>{});
+  return run;
+}
+async function _sbSaveInvNow(onlyOid,onlyMonth){
+  const outletIds=onlyOid?[onlyOid]:Object.keys(INV_DSR);
   if(!outletIds.length){console.log('sbSaveInv: nothing to save');return;}
   let totalSaved=0;
   for(const oid of outletIds){
-    const months=Object.keys(INV_DSR[oid]);
+    const months=onlyMonth?[onlyMonth]:Object.keys(INV_DSR[oid]||{});
     for(const m of months){
-      const brands=INV_DSR[oid][m];
-      if(!brands||!brands.length)continue;
-      await sbReq('inventory_dsr?outlet_id=eq.'+oid+'&month=eq.'+m,'DELETE')
-        .catch(e=>console.warn('inv delete',oid,m,e.message));
+      const brands=(INV_DSR[oid]||{})[m];
+      if(!brands||!brands.length){
+        if(onlyMonth) await sbReq('inventory_dsr?outlet_id=eq.'+oid+'&month=eq.'+m,'DELETE').catch(()=>{});
+        continue;
+      }
+      // If the DELETE fails, POSTing anyway would add a second copy of every
+      // brand — stop instead and let the caller report the failure.
+      await sbReq('inventory_dsr?outlet_id=eq.'+oid+'&month=eq.'+m,'DELETE');
       const entries=brands.map(b=>({
         outlet_id:oid, month:m,
         brand:b.brand, size_ml:b.size||0,
@@ -16893,15 +17042,22 @@ async function sbLoadInv(){
     console.log('[sbLoadInv] rows from cloud:',rows?rows.length:0);
     if(!rows||!rows.length){console.log('[sbLoadInv] no inventory in cloud');return;}
     Object.keys(INV_DSR).forEach(k=>delete INV_DSR[k]);
-    let loaded=0;
+    let loaded=0, droppedCopies=0;
+    const seenExact=new Set();
     rows.forEach(r=>{
       if(!r.outlet_id||!r.month||!r.brand)return;
       if(!INV_DSR[r.outlet_id]) INV_DSR[r.outlet_id]={};
       if(!INV_DSR[r.outlet_id][r.month]) INV_DSR[r.outlet_id][r.month]=[];
+      const brand=_cleanBrandName(r.brand);
+      // A byte-identical copy (same name, size, opening, received, history)
+      // can only come from a doubled save — keep one.
+      const ek=[r.outlet_id,r.month,brand.toLowerCase(),+r.size_ml||0,+r.open_bal||0,+r.received||0,r.history||''].join('|');
+      if(seenExact.has(ek)){droppedCopies++;return;}
+      seenExact.add(ek);
       let history=[];
       try{history=r.history?JSON.parse(r.history):[];}catch(e){}
       INV_DSR[r.outlet_id][r.month].push({
-        brand:r.brand,
+        brand:brand,
         size:+r.size_ml||0,
         category:r.category||'WHISKY',
         openBal:+r.open_bal||0,
@@ -23917,10 +24073,53 @@ function checkCarryForwardBanner(){
     el.innerHTML='<div style="font-size:24px;">🔁</div>'+
       '<div style="flex:1;min-width:200px;"><div style="font-size:13px;font-weight:800;color:#1ec9b0;">Sales data for '+monthLabel(latestSales)+' exists, but the stock register is still on '+monthLabel(invM)+'</div>'+
       '<div style="font-size:11px;color:var(--mu2);margin-top:3px;">Carry forward '+monthLabel(invM)+' closing balances as '+monthLabel(latestSales)+' opening so sales start deducting from the right month.</div></div>'+
-      '<button onclick="invActiveMonth=\''+invM+'\';openCarryForwardModal()" style="background:#1ec9b0;border:none;color:#000;padding:10px 16px;border-radius:9px;font-family:inherit;font-size:12px;font-weight:800;cursor:pointer;white-space:nowrap;">🔁 CARRY FORWARD NOW</button>';
+      '<button onclick="invActiveMonth=\''+invM+'\';openCarryForwardModal()" style="background:#1ec9b0;border:none;color:#000;padding:10px 16px;border-radius:9px;font-family:inherit;font-size:12px;font-weight:800;cursor:pointer;white-space:nowrap;">🔁 CARRY FORWARD NOW</button>'+
+      (_carryAllPlan().length>1?'<button onclick="carryForwardAllOutlets()" style="background:none;border:1px solid #1ec9b0;color:#1ec9b0;padding:10px 16px;border-radius:9px;font-family:inherit;font-size:12px;font-weight:800;cursor:pointer;white-space:nowrap;">🔁 ALL OUTLETS ('+_carryAllPlan().length+')</button>':'');
   } else {
     el.style.display='none';
   }
+}
+// Every outlet whose register is behind its latest sales month: carry its
+// latest register forward month by month up to that sales month.
+function _carryAllPlan(){
+  const plan=[];
+  OUTLETS.forEach(o=>{
+    const invM=_latestInvM(o.id);
+    const salesM=[...new Set((oData[o.id]||[]).map(r=>r.month).filter(Boolean))].sort();
+    const latest=salesM[salesM.length-1];
+    if(invM&&latest&&latest>invM) plan.push({o,from:invM,to:latest});
+  });
+  return plan;
+}
+async function carryForwardAllOutlets(){
+  if(role!=='admin'){toast('Only admin can carry forward stock','err');return;}
+  const plan=_carryAllPlan();
+  if(!plan.length){toast('Every outlet register is already up to date','ok');return;}
+  const dups=plan.filter(p=>_invDupGroups(p.o.id,p.from).length);
+  if(!confirm('🔁 CARRY FORWARD — ALL OUTLETS\n\n'+plan.map(p=>'• '+p.o.name+': '+monthLabel(p.from)+' closing → '+monthLabel(p.to)+' opening').join('\n')+
+    (dups.length?'\n\n⚠ '+dups.map(p=>p.o.name).join(', ')+' still have duplicate brands in '+monthLabel(dups[0].from)+' — merge them first (🧹 card) or the duplicates carry over too.':'')+'\n\nContinue?'))return;
+  showLoad('Carrying forward '+plan.length+' outlets…');
+  const done=[];
+  try{
+    for(const p of plan){
+      let mk=p.from;
+      while(mk<p.to){
+        const nx=_nextMonthKey(mk);
+        invalidateSoldCache();
+        if(!carryForwardMonth(p.o.id,mk,nx,true))break;
+        await sbSaveInvMonth(p.o.id,nx);
+        mk=nx;
+      }
+      done.push(p.o.name);
+    }
+    toast('✓ Carried forward: '+done.join(', '),'ok');
+  }catch(e){
+    toast('⚠ Stopped after '+(done.join(', ')||'none')+': '+e.message,'err');
+  }
+  hideLoad();
+  invalidateSoldCache();
+  buildInventoryPage();
+  refreshAll();
 }
 </script>
 
