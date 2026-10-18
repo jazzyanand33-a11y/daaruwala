@@ -2956,6 +2956,15 @@ const BRAND_ALIASES={
   'bacardi breezer can':'BREEZER CRANBERRY',
   'morpheus whisky':'MORPHEUS WHISKY',
 };
+// Untouched built-in aliases, so a custom mapping removed in the cloud can fall
+// back to the built-in value instead of lingering on this device.
+const _BRAND_ALIASES_BUILTIN=Object.assign({},BRAND_ALIASES);
+// Cross-device sync: the cloud is the single source of truth. Entries that
+// exist only in this browser (a save that never reached the cloud) are
+// uploaded ONCE per device; after that, device-only leftovers are dropped so
+// every laptop shows the same mappings and the same P&L.
+function _syncMigrated(name){ try{ return localStorage.getItem('dw_sync_v2_'+name)==='1'; }catch(e){ return true; } }
+function _syncMarkMigrated(name){ try{ localStorage.setItem('dw_sync_v2_'+name,'1'); }catch(e){} }
 // ════════════════════════════════════════════════════════════
 // CONFIG
 // ════════════════════════════════════════════════════════════
@@ -8014,7 +8023,8 @@ const PCC_HEADS=[
 ];
 let PCC_TARGETS={};
 function _pccLoadTargets(){ try{ PCC_TARGETS=JSON.parse(localStorage.getItem('pccTargets')||'{}'); }catch(e){ PCC_TARGETS={}; } }
-function _pccSaveTargets(){ try{ localStorage.setItem('pccTargets', JSON.stringify(PCC_TARGETS)); }catch(e){} }
+function _pccWriteLocal(){ try{ localStorage.setItem('pccTargets', JSON.stringify(PCC_TARGETS)); }catch(e){} }
+function _pccSaveTargets(){ _pccWriteLocal(); _pl2MarkDirty(); _pl2CloudSave(); }
 _pccLoadTargets();
 function pccTargetFor(headId, outletKey){
   const k=(outletKey||'all')+'::'+headId;
@@ -9325,7 +9335,7 @@ let PL2_LIQUOR_ACTUALS = {}; // outletId -> monthKey -> manual liquor cost overr
 let PL2_OTHER_INCOME  = []; // [{id,date,outletId,type,description,amount,notes}]
 let PL2_EXP_MAP       = {}; // lowercased ledger category -> 'food'|'gas'|'exclude'|'other' (person's corrections, remembered)
 
-function _pl2SaveLocal(){
+function _pl2WriteLocal(){
   try{
     localStorage.setItem('pl2_costMaster', JSON.stringify(PL2_COST_MASTER));
     localStorage.setItem('pl2_actuals', JSON.stringify(PL2_ACTUALS));
@@ -9335,6 +9345,10 @@ function _pl2SaveLocal(){
     localStorage.setItem('pl2_otherIncome', JSON.stringify(PL2_OTHER_INCOME));
     localStorage.setItem('pl2_expMap', JSON.stringify(PL2_EXP_MAP));
   }catch(e){ console.warn('[PL2] local save failed', e.message); }
+}
+function _pl2SaveLocal(){
+  _pl2WriteLocal();
+  _pl2MarkDirty();
   // Mirror to the cloud so fixed costs, targets and actuals exist on every
   // device. Previously these lived ONLY in this browser's localStorage, so a
   // fixed expense added on the laptop was invisible on the phone and lost if
@@ -9342,21 +9356,43 @@ function _pl2SaveLocal(){
   try{ _pl2CloudSave(); }catch(e){}
 }
 
+// "Unsynced" flag: set on every local edit, cleared only once that edit has
+// reached the cloud. On load, a device WITHOUT unsynced edits always adopts the
+// cloud copy — previously the cloud was only used when this browser had nothing
+// saved at all, so two laptops kept their own diverging copies forever (same
+// month, different Liquor Cost / profit on each laptop).
+let _pl2CloudReady=false;   // true once this device has pulled the cloud copy
+let _pl2EditSeq=0;
+function _pl2MarkDirty(){ _pl2EditSeq++; try{ localStorage.setItem('pl2_unsynced','1'); }catch(e){} }
+function _pl2IsDirty(){ try{ return localStorage.getItem('pl2_unsynced')==='1'; }catch(e){ return false; } }
+
 // Debounced so a burst of edits makes one request, not ten.
 let _pl2CloudTimer=null;
 function _pl2CloudSave(){
+  // Never push before the cloud copy was read — a stale device would overwrite
+  // the other laptop's newer settings. The edit stays flagged and is pushed
+  // right after load.
+  if(!_pl2CloudReady) return;
   clearTimeout(_pl2CloudTimer);
   _pl2CloudTimer=setTimeout(async()=>{
+    const seq=_pl2EditSeq;
     const payload={
       costMaster:PL2_COST_MASTER, actuals:PL2_ACTUALS, foodSettings:PL2_FOOD_SETTINGS,
       foodActuals:PL2_FOOD_ACTUALS, liquorActuals:PL2_LIQUOR_ACTUALS,
-      otherIncome:PL2_OTHER_INCOME, expMap:PL2_EXP_MAP
+      otherIncome:PL2_OTHER_INCOME, expMap:PL2_EXP_MAP,
+      // These used to live only in this browser's localStorage
+      pccTargets:PCC_TARGETS, pegSource:PEG_SOURCE, mgrBrandMap:MGR_BRAND_MAP,
+      signalRules:PL2_SIGNAL_RULES, signalStatus:PL2_SIGNAL_STATUS
     };
     try{
       await sbReq('pl2_settings?on_conflict=id','POST',
         [{id:1, data:payload, updated_at:new Date().toISOString()}],
         {Prefer:'resolution=merge-duplicates,return=minimal'});
-    }catch(e){ console.warn('[PL2] cloud save failed:', e.message); }
+      if(seq===_pl2EditSeq){ try{ localStorage.removeItem('pl2_unsynced'); }catch(e){} }
+    }catch(e){
+      console.warn('[PL2] cloud save failed:', e.message);
+      toast('⚠ P&L settings saved on this device only — cloud sync failed','warn');
+    }
   }, 800);
 }
 
@@ -9364,18 +9400,33 @@ async function _pl2CloudLoad(){
   try{
     const rows=await sbReq('pl2_settings?select=data&id=eq.1');
     const d=(rows&&rows[0]&&rows[0].data)||null;
-    if(!d) return false;
-    // Only adopt cloud values for stores that are empty locally, so an unsynced
-    // local edit is never clobbered on load.
-    const isEmpty=o=>!o||!Object.keys(o).length;
-    if(isEmpty(PL2_COST_MASTER)   && d.costMaster)    PL2_COST_MASTER=d.costMaster;
-    if(isEmpty(PL2_ACTUALS)       && d.actuals)       PL2_ACTUALS=d.actuals;
-    if(isEmpty(PL2_FOOD_SETTINGS) && d.foodSettings)  PL2_FOOD_SETTINGS=d.foodSettings;
-    if(isEmpty(PL2_FOOD_ACTUALS)  && d.foodActuals)   PL2_FOOD_ACTUALS=d.foodActuals;
-    if(isEmpty(PL2_LIQUOR_ACTUALS)&& d.liquorActuals) PL2_LIQUOR_ACTUALS=d.liquorActuals;
-    if((!PL2_OTHER_INCOME||!PL2_OTHER_INCOME.length) && d.otherIncome) PL2_OTHER_INCOME=d.otherIncome;
-    if(isEmpty(PL2_EXP_MAP)       && d.expMap)        PL2_EXP_MAP=d.expMap;
-    console.log('[PL2] settings restored from cloud');
+    _pl2CloudReady=true;
+    if(!d){ _pl2CloudSave(); return false; }   // empty cloud: seed it from this device
+    if(_pl2IsDirty()){
+      // This device has edits that never reached the cloud — push them up
+      // rather than discarding them.
+      console.log('[PL2] unsynced local edits found — uploading to cloud');
+      _pl2CloudSave();
+      return true;
+    }
+    // Cloud is the single source of truth.
+    if(d.costMaster)    PL2_COST_MASTER=d.costMaster;
+    if(d.actuals)       PL2_ACTUALS=d.actuals;
+    if(d.foodSettings)  PL2_FOOD_SETTINGS=d.foodSettings;
+    if(d.foodActuals)   PL2_FOOD_ACTUALS=d.foodActuals;
+    if(d.liquorActuals) PL2_LIQUOR_ACTUALS=d.liquorActuals;
+    if(d.otherIncome)   PL2_OTHER_INCOME=d.otherIncome;
+    if(d.expMap)        PL2_EXP_MAP=d.expMap;
+    if(d.pccTargets)    PCC_TARGETS=d.pccTargets;
+    if(d.pegSource)     PEG_SOURCE=d.pegSource;
+    if(d.mgrBrandMap)   MGR_BRAND_MAP=d.mgrBrandMap;
+    if(d.signalRules)   PL2_SIGNAL_RULES=Object.assign(PL2_SIGNAL_RULES, d.signalRules);
+    if(d.signalStatus)  PL2_SIGNAL_STATUS=d.signalStatus;
+    _pl2WriteLocal(); _pccWriteLocal(); _writePegSourceLocal(); _mgrWriteBrandMapLocal(); _pl2WriteSignalLocal();
+    try{ if(typeof invalidateSoldCache==='function') invalidateSoldCache(); }catch(e){}
+    // Older cloud copies predate the device-only stores — seed them once from here.
+    if(!('pegSource' in d) || !('mgrBrandMap' in d) || !('pccTargets' in d) || !('signalRules' in d)) _pl2CloudSave();
+    console.log('[PL2] settings loaded from cloud');
     return true;
   }catch(e){ console.warn('[PL2] cloud load failed:', e.message); return false; }
 }
@@ -10351,12 +10402,13 @@ let PL2_SIGNAL_RULES={
 };
 let PL2_SIGNAL_STATUS={}; // signalId -> {status,note,assignedTo,resolvedAt,resolvedBy}
 
-function _pl2SaveSignalSettings(){
+function _pl2WriteSignalLocal(){
   try{
     localStorage.setItem('pl2_signalRules', JSON.stringify(PL2_SIGNAL_RULES));
     localStorage.setItem('pl2_signalStatus', JSON.stringify(PL2_SIGNAL_STATUS));
   }catch(e){}
 }
+function _pl2SaveSignalSettings(){ _pl2WriteSignalLocal(); _pl2MarkDirty(); _pl2CloudSave(); }
 function _pl2LoadSignalSettings(){
   try{
     const r=localStorage.getItem('pl2_signalRules'); if(r) PL2_SIGNAL_RULES=Object.assign(PL2_SIGNAL_RULES, JSON.parse(r));
@@ -12780,7 +12832,8 @@ let MGR_BRAND_MAP={}; // outletId -> { "DSRBRAND__SIZE": {brand, size} }
 // which is what actually happens behind the bar.
 let PEG_SOURCE={}; // { "CANON BRAND": 180 | 750 | {"30":180,"60":750,"_":750} }
 function _loadPegSource(){ try{ PEG_SOURCE=JSON.parse(localStorage.getItem('pegSource')||'{}'); }catch(e){ PEG_SOURCE={}; } }
-function _savePegSource(){ try{ localStorage.setItem('pegSource', JSON.stringify(PEG_SOURCE)); }catch(e){} }
+function _writePegSourceLocal(){ try{ localStorage.setItem('pegSource', JSON.stringify(PEG_SOURCE)); }catch(e){} }
+function _savePegSource(){ _writePegSourceLocal(); _pl2MarkDirty(); _pl2CloudSave(); }
 
 // pegSourceFor(brand)          → the brand default (back-compatible)
 // pegSourceFor(brand, pegMl)   → the source for that specific peg size
@@ -12803,7 +12856,8 @@ function pegSourceMap(brand){
 _loadPegSource();
 function _mgrMapKey(brand,size){ return _normName(brand)+'__'+(size||0); }
 function _mgrLoadBrandMap(){ try{ MGR_BRAND_MAP=JSON.parse(localStorage.getItem('mgrBrandMap')||'{}'); }catch(e){ MGR_BRAND_MAP={}; } }
-function _mgrSaveBrandMap(){ try{ localStorage.setItem('mgrBrandMap', JSON.stringify(MGR_BRAND_MAP)); }catch(e){} }
+function _mgrWriteBrandMapLocal(){ try{ localStorage.setItem('mgrBrandMap', JSON.stringify(MGR_BRAND_MAP)); }catch(e){} }
+function _mgrSaveBrandMap(){ _mgrWriteBrandMapLocal(); _pl2MarkDirty(); _pl2CloudSave(); }
 _mgrLoadBrandMap();
 
 function _mgrMatchInvRow(mgrBrand, mgrSize, invRows){
@@ -13012,10 +13066,22 @@ async function mgrStockCloudLoad(){
     (rows||[]).forEach(r=>{
       if(!r.outlet_id||!r.month_key||!Array.isArray(r.rows)||!r.rows.length) return;
       if(!MGR_STOCK[r.outlet_id]) MGR_STOCK[r.outlet_id]={};
-      // Don't clobber a newer local copy that hasn't synced yet
-      if(!MGR_STOCK[r.outlet_id][r.month_key]) MGR_STOCK[r.outlet_id][r.month_key]=r.rows;
+      // Cloud copy wins — a stale local copy made the two laptops disagree
+      MGR_STOCK[r.outlet_id][r.month_key]=r.rows;
       n++;
     });
+    // Reports that exist only on this device: upload once, then drop leftovers
+    const inCloud=new Set((rows||[]).map(r=>r.outlet_id+'|'+r.month_key));
+    const migrate=!_syncMigrated('mgrstock');
+    for(const oid of Object.keys(MGR_STOCK)){
+      for(const mk of Object.keys(MGR_STOCK[oid]||{})){
+        if(inCloud.has(oid+'|'+mk)) continue;
+        if(migrate){ await mgrStockCloudSave(oid, mk, MGR_STOCK[oid][mk]); continue; }
+        delete MGR_STOCK[oid][mk];
+        try{ localStorage.removeItem('mgrStock_'+oid+'_'+mk); }catch(e){}
+      }
+    }
+    if(migrate) _syncMarkMigrated('mgrstock');
     if(n) console.log('[mgrstock] restored '+n+' report(s) from cloud');
     return n;
   }catch(e){
@@ -17599,10 +17665,25 @@ async function sbLoadCombos(){
     const rows=await sbReq('combo_aliases?select=*&limit=2000');
     if(Array.isArray(rows)){
       let n=0;
+      const cloud={};
       rows.forEach(r=>{
         if(!r.item_key||!r.combo_json) return;
-        try{ const parts=JSON.parse(r.combo_json); if(Array.isArray(parts)&&parts.length){ CUSTOM_COMBOS[String(r.item_key).toLowerCase()]=parts; n++; } }catch(e){}
+        try{ const parts=JSON.parse(r.combo_json); if(Array.isArray(parts)&&parts.length){ cloud[String(r.item_key).toLowerCase()]=parts; n++; } }catch(e){}
       });
+      let allUp=true;
+      for(const k of Object.keys(CUSTOM_COMBOS)){
+        if(k in cloud) continue;
+        if(!_syncMigrated('combos')){
+          try{
+            await sbReq('combo_aliases?item_key=eq.'+encodeURIComponent(k),'DELETE').catch(()=>{});
+            await sbReq('combo_aliases','POST',[{item_key:k,combo_json:JSON.stringify(CUSTOM_COMBOS[k])}]);
+          }catch(e){ allUp=false; }
+          cloud[k]=CUSTOM_COMBOS[k]; continue;
+        }
+        delete CUSTOM_COMBOS[k];   // removed on another device
+      }
+      if(allUp) _syncMarkMigrated('combos');
+      Object.assign(CUSTOM_COMBOS, cloud);
       _combosCloudOk=true;
       _saveCustomCombosLocal();
       if(n)console.log('[combos] loaded',n,'custom combo mappings from cloud');
@@ -17662,7 +17743,19 @@ async function sbLoadAliases(){
     const rows=await sbReq('brand_aliases?select=*&limit=5000');
     if(Array.isArray(rows)){
       let n=0;
-      rows.forEach(r=>{if(r.item_key&&r.brand){_applyCustomAlias(String(r.item_key).toLowerCase(),String(r.brand));n++;}});
+      const cloud={};
+      rows.forEach(r=>{if(r.item_key&&r.brand)cloud[String(r.item_key).toLowerCase()]=String(r.brand);});
+      let allUp=true;
+      for(const k of Object.keys(CUSTOM_ALIASES)){
+        if(k in cloud) continue;
+        if(!_syncMigrated('aliases') && (await _sbSaveAliasRow(k,CUSTOM_ALIASES[k]))){ cloud[k]=CUSTOM_ALIASES[k]; continue; }
+        if(!_syncMigrated('aliases')){ allUp=false; cloud[k]=CUSTOM_ALIASES[k]; continue; }
+        // Removed on another device — fall back to the built-in mapping
+        delete CUSTOM_ALIASES[k];
+        if(k in _BRAND_ALIASES_BUILTIN) BRAND_ALIASES[k]=_BRAND_ALIASES_BUILTIN[k]; else delete BRAND_ALIASES[k];
+      }
+      if(allUp) _syncMarkMigrated('aliases');
+      Object.entries(cloud).forEach(([k,v])=>{_applyCustomAlias(k,v);n++;});
       _aliasCloudOk=true;
       _saveCustomAliasesLocal(); // keep device copy in sync
       if(n)console.log('[aliases] loaded',n,'custom mappings from cloud');
@@ -23410,7 +23503,23 @@ async function sbLoadOverrides(){
   try{
     const rows=await sbReq('item_overrides?select=*&limit=5000');
     if(Array.isArray(rows)){
-      rows.forEach(r=>{if(r.item_key&&r.brand)ITEM_OVERRIDES[_ovNormKeyPreserveScope(r.item_key)]={brand:String(r.brand).toUpperCase(),size:r.size_ml?+r.size_ml:null,ml:r.peg_ml?+r.peg_ml:null,pack:r.pack_qty?+r.pack_qty:null,mini:!!r.is_mini,cat:r.category||''};});
+      const cloud={};
+      rows.forEach(r=>{if(r.item_key&&r.brand)cloud[_ovNormKeyPreserveScope(r.item_key)]={brand:String(r.brand).toUpperCase(),size:r.size_ml?+r.size_ml:null,ml:r.peg_ml?+r.peg_ml:null,pack:r.pack_qty?+r.pack_qty:null,mini:!!r.is_mini,cat:r.category||''};});
+      let allUp=true;
+      for(const k of Object.keys(ITEM_OVERRIDES)){
+        if(k in cloud) continue;
+        if(!_syncMigrated('overrides')){
+          const ov=ITEM_OVERRIDES[k], sc=k.indexOf('::')>0?k.slice(0,k.indexOf('::')):null;
+          try{
+            await sbReq('item_overrides?item_key=eq.'+encodeURIComponent(k),'DELETE').catch(()=>{});
+            await sbReq('item_overrides','POST',[{item_key:k,outlet_id:sc,brand:ov.brand,size_ml:ov.size||null,peg_ml:ov.ml||null,pack_qty:ov.pack||null,is_mini:ov.mini||null,category:ov.cat||null}]);
+          }catch(e){ allUp=false; }
+          cloud[k]=ov; continue;
+        }
+        delete ITEM_OVERRIDES[k];   // removed on another device
+      }
+      if(allUp) _syncMarkMigrated('overrides');
+      Object.assign(ITEM_OVERRIDES, cloud);
       _ovCloudOk=true;_saveOverridesLocal();
     }
   }catch(e){_ovCloudOk=false;console.warn('[overrides] cloud table not available:',e.message);}
@@ -23836,7 +23945,23 @@ async function sbLoadRenames(){
   try{
     const rows=await sbReq('item_renames?select=*&limit=5000');
     if(Array.isArray(rows)){
-      rows.forEach(r=>{if(r.raw_key&&r.new_name)ITEM_RENAMES[_ovNormKeyPreserveScope(r.raw_key)]=String(r.new_name);});
+      const cloud={};
+      rows.forEach(r=>{if(r.raw_key&&r.new_name)cloud[_ovNormKeyPreserveScope(r.raw_key)]=String(r.new_name);});
+      let allUp=true;
+      for(const k of Object.keys(ITEM_RENAMES)){
+        if(k in cloud) continue;
+        if(!_syncMigrated('renames')){
+          const sc=k.indexOf('::')>0?k.slice(0,k.indexOf('::')):null;
+          try{
+            await sbReq('item_renames?raw_key=eq.'+encodeURIComponent(k),'DELETE').catch(()=>{});
+            await sbReq('item_renames','POST',[{raw_key:k,outlet_id:sc,new_name:ITEM_RENAMES[k]}]);
+          }catch(e){ allUp=false; }
+          cloud[k]=ITEM_RENAMES[k]; continue;
+        }
+        delete ITEM_RENAMES[k];   // removed on another device
+      }
+      if(allUp) _syncMarkMigrated('renames');
+      Object.assign(ITEM_RENAMES, cloud);
       _rnCloudOk=true;_saveRenamesLocal();
     }
   }catch(e){_rnCloudOk=false;console.warn('[renames] cloud table not available:',e.message);}
