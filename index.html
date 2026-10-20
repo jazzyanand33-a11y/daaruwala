@@ -19766,26 +19766,10 @@ async function tpApprove(){
     // Copy of the outlet's registers before anything changes — restored if the
     // cloud save fails, so pressing Approve again can't add the same TP twice.
     const outletBefore=JSON.parse(JSON.stringify(INV_DSR[oid]));
-    const touchedMonths=[];
-    // TP dated in a month that has no register yet (e.g. first TP of October
-    // while the last DSR is September): carry the previous closing forward
-    // first. Creating a bare month here used to leave a register holding ONLY
-    // the TP brands with opening 0 — and it hid the carry-forward banner.
-    if(!(INV_DSR[oid][monthKey]&&INV_DSR[oid][monthKey].length)){
-      const prev=Object.keys(INV_DSR[oid]).filter(x=>x<monthKey&&(INV_DSR[oid][x]||[]).length).sort().pop();
-      if(prev){
-        let cm=prev;
-        while(cm<monthKey){
-          const nx=_nextMonthKey(cm);
-          invalidateSoldCache();
-          if(!carryForwardMonth(oid,cm,nx,true)) break;
-          touchedMonths.push(nx);
-          cm=nx;
-        }
-      }
-    }
+    // A TP for a month with no register yet just starts that month with the
+    // purchases (opening 0). Carry Forward later fills in the opening and
+    // keeps these received rows.
     if(!INV_DSR[oid][monthKey]) INV_DSR[oid][monthKey]=[];
-    if(!touchedMonths.includes(monthKey)) touchedMonths.push(monthKey);
     const reg=INV_DSR[oid][monthKey];
     const dateVal=tp.tpDate||dtKey(new Date());
 
@@ -19815,8 +19799,8 @@ async function tpApprove(){
       added++;
     });
 
-    // persist only the outlet+month(s) this TP touched
-    try{ for(const tm of touchedMonths) await sbSaveInvMonth(oid,tm); }
+    // persist only the outlet+month this TP touched
+    try{ await sbSaveInvMonth(oid,monthKey); }
     catch(e){
       INV_DSR[oid]=outletBefore;
       invalidateSoldCache();
@@ -19843,7 +19827,6 @@ async function tpApprove(){
 
     hideLoad();
     toast('✓ TP '+tp.tpNumber+' approved — '+added+' brand line(s) added to '+ (OUTLETS.find(o=>o.id===oid)||{}).name+' · '+monthLabel(monthKey)
-      +(touchedMonths.length>1?' (stock carried forward from '+monthLabel(_prevMonthKey(touchedMonths[0]))+')':'')
       +(laterMonths.length?' — '+monthLabel(laterMonths[0])+' already exists: open it and press 🩹 Rectify Opening so its opening includes this TP':''),'ok');
 
     // refresh everything that depends on stock
