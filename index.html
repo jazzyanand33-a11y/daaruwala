@@ -18506,8 +18506,14 @@ function buildPurchasesPage(){
   let rows=_allReceipts();
   if(of!=='ALL')rows=rows.filter(r=>r.outletId===of);
   if(q)rows=rows.filter(r=>r.brand.toLowerCase().includes(q)||(r.note||'').toLowerCase().includes(q));
+  const beforeDate=rows;
   if(dFrom)rows=rows.filter(r=>r.date&&r.date>=dFrom);
   if(dTo)rows=rows.filter(r=>r.date&&r.date<=dTo);
+  // The date range defaults to this month only — say so when it hides
+  // entries, otherwise an outlet with no purchases yet this month looks
+  // like its whole purchase history is missing.
+  const hiddenByDate=beforeDate.length-rows.length;
+  const latestHidden=hiddenByDate?beforeDate.find(r=>!rows.includes(r)):null;
   const totQty=rows.reduce((s,r)=>s+r.qty,0);
   const thisMo=new Date().toISOString().slice(0,7);
   const moQty=rows.filter(r=>(r.date||'').slice(0,7)===thisMo).reduce((s,r)=>s+r.qty,0);
@@ -18534,6 +18540,7 @@ function buildPurchasesPage(){
       <button onclick="deletePurchaseRow('${idJson}')" title="Delete this purchase" style="background:rgba(255,84,112,.1);border:1px solid rgba(255,84,112,.35);color:#ff5470;width:26px;height:26px;border-radius:6px;cursor:pointer;font-size:11px;">🗑️</button>`:'—'}</td></tr>`;
   }).join('')+(rows.length>300?'<tr><td colspan="8" class="empty">Showing latest 300 — export CSV for full log</td></tr>':'')
     :'<tr><td colspan="8" class="empty"><b>🛒</b>No stock receipts yet. Use 📦 Inventory → ➕ Receive Stock.</td></tr>';
+  if(hiddenByDate) body.innerHTML+='<tr><td colspan="8" class="empty" style="color:#ffb020;">📅 '+fN(hiddenByDate)+' more entr'+(hiddenByDate===1?'y is':'ies are')+' outside the date range ('+(dFrom||'…')+' → '+(dTo||'…')+')'+(latestHidden&&latestHidden.date?' — latest on '+latestHidden.date:'')+'. <a href="#" onclick="document.getElementById(\'purDateFrom\').value=\'\';document.getElementById(\'purDateTo\').value=\'\';buildPurchasesPage();return false;" style="color:#1ec9b0;font-weight:800;">Show all dates</a></td></tr>';
   document.getElementById('purBadge').textContent=rows.length+' entries · '+fN(totQty)+' bottles';
 }
 
