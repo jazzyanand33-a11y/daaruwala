@@ -19763,10 +19763,29 @@ async function tpApprove(){
     const mk = dateMonthKey || (invActiveOutlet===oid&&invActiveMonth?invActiveMonth:_getLatestMonthKey());
     const monthKey=mk||_getLatestMonthKey();
     if(!INV_DSR[oid]) INV_DSR[oid]={};
+    // Copy of the outlet's registers before anything changes — restored if the
+    // cloud save fails, so pressing Approve again can't add the same TP twice.
+    const outletBefore=JSON.parse(JSON.stringify(INV_DSR[oid]));
+    const touchedMonths=[];
+    // TP dated in a month that has no register yet (e.g. first TP of October
+    // while the last DSR is September): carry the previous closing forward
+    // first. Creating a bare month here used to leave a register holding ONLY
+    // the TP brands with opening 0 — and it hid the carry-forward banner.
+    if(!(INV_DSR[oid][monthKey]&&INV_DSR[oid][monthKey].length)){
+      const prev=Object.keys(INV_DSR[oid]).filter(x=>x<monthKey&&(INV_DSR[oid][x]||[]).length).sort().pop();
+      if(prev){
+        let cm=prev;
+        while(cm<monthKey){
+          const nx=_nextMonthKey(cm);
+          invalidateSoldCache();
+          if(!carryForwardMonth(oid,cm,nx,true)) break;
+          touchedMonths.push(nx);
+          cm=nx;
+        }
+      }
+    }
     if(!INV_DSR[oid][monthKey]) INV_DSR[oid][monthKey]=[];
-    // Copy of the register before any stock is added — restored if the cloud
-    // save fails, so pressing Approve again can't add the same TP twice.
-    const regBefore=JSON.parse(JSON.stringify(INV_DSR[oid][monthKey]));
+    if(!touchedMonths.includes(monthKey)) touchedMonths.push(monthKey);
     const reg=INV_DSR[oid][monthKey];
     const dateVal=tp.tpDate||dtKey(new Date());
 
@@ -19796,13 +19815,15 @@ async function tpApprove(){
       added++;
     });
 
-    // persist only the outlet+month this TP touched
-    try{ await sbSaveInvMonth(oid,monthKey); }
+    // persist only the outlet+month(s) this TP touched
+    try{ for(const tm of touchedMonths) await sbSaveInvMonth(oid,tm); }
     catch(e){
-      INV_DSR[oid][monthKey]=regBefore;
+      INV_DSR[oid]=outletBefore;
       invalidateSoldCache();
       throw new Error(e.message+' — nothing was added, you can approve again');
     }
+    invalidateSoldCache();
+    const laterMonths=Object.keys(INV_DSR[oid]).filter(x=>x>monthKey&&(INV_DSR[oid][x]||[]).length).sort();
 
     // record TP header + lines in Supabase (best-effort; inventory already saved)
     const totCases=tp.lines.reduce((s,l)=>s+(l.cases||0),0);
@@ -19821,7 +19842,9 @@ async function tpApprove(){
     TP_HISTORY.unshift(header);
 
     hideLoad();
-    toast('✓ TP '+tp.tpNumber+' approved — '+added+' brand line(s) added to '+ (OUTLETS.find(o=>o.id===oid)||{}).name,'ok');
+    toast('✓ TP '+tp.tpNumber+' approved — '+added+' brand line(s) added to '+ (OUTLETS.find(o=>o.id===oid)||{}).name+' · '+monthLabel(monthKey)
+      +(touchedMonths.length>1?' (stock carried forward from '+monthLabel(_prevMonthKey(touchedMonths[0]))+')':'')
+      +(laterMonths.length?' — '+monthLabel(laterMonths[0])+' already exists: open it and press 🩹 Rectify Opening so its opening includes this TP':''),'ok');
 
     // refresh everything that depends on stock
     try{ refreshStockPages(oid); }catch(e){}
@@ -23936,8 +23959,11 @@ function carryForwardMonth(outletId,fromMk,toMk,silent){
   const existing=INV_DSR[outletId][toMk];
   if(existing&&existing.length){
     // merge: update openBal of matching brand+size; keep received & history; add missing brands
+    // case/space-tolerant match, so rows a TP created ("Old Smuggler ") line up
+    // with last month's ("OLD SMUGGLER") instead of becoming a second row
+    const keyOf=b=>_brandMatchKey(canonBrand(b.brand),+b.size||0);
     closing.forEach(c=>{
-      const m=existing.find(e=>e.brand===c.brand&&e.size===c.size);
+      const m=existing.find(e=>keyOf(e)===keyOf(c));
       if(m){
         m.openBal=c.openBal;
         // Backfill MRP from last month if THIS month's row has none — a
@@ -24127,9 +24153,23 @@ function checkCarryForwardBanner(){
       '<div style="font-size:11px;color:var(--mu2);margin-top:3px;">Carry forward '+monthLabel(invM)+' closing balances as '+monthLabel(latestSales)+' opening so sales start deducting from the right month.</div></div>'+
       '<button onclick="invActiveMonth=\''+invM+'\';openCarryForwardModal()" style="background:#1ec9b0;border:none;color:#000;padding:10px 16px;border-radius:9px;font-family:inherit;font-size:12px;font-weight:800;cursor:pointer;white-space:nowrap;">🔁 CARRY FORWARD NOW</button>'+
       (_carryAllPlan().length>1?'<button onclick="carryForwardAllOutlets()" style="background:none;border:1px solid #1ec9b0;color:#1ec9b0;padding:10px 16px;border-radius:9px;font-family:inherit;font-size:12px;font-weight:800;cursor:pointer;white-space:nowrap;">🔁 ALL OUTLETS ('+_carryAllPlan().length+')</button>':'');
+  } else if(role==='admin'&&invM&&_noOpeningMonth(o,invM)){
+    // Latest register holds purchases but zero opening stock — typically a
+    // TP approved into a month before last month's closing was carried in.
+    const prev=_prevMonthKey(invM);
+    el.style.display='flex';
+    el.innerHTML='<div style="font-size:24px;">🔁</div>'+
+      '<div style="flex:1;min-width:200px;"><div style="font-size:13px;font-weight:800;color:#1ec9b0;">'+monthLabel(invM)+' has purchases but NO opening stock</div>'+
+      '<div style="font-size:11px;color:var(--mu2);margin-top:3px;">Carry forward '+monthLabel(prev)+' closing into '+monthLabel(invM)+' — the purchases already there are kept.</div></div>'+
+      '<button onclick="invActiveMonth=\''+prev+'\';openCarryForwardModal()" style="background:#1ec9b0;border:none;color:#000;padding:10px 16px;border-radius:9px;font-family:inherit;font-size:12px;font-weight:800;cursor:pointer;white-space:nowrap;">🔁 CARRY FORWARD NOW</button>';
   } else {
     el.style.display='none';
   }
+}
+function _noOpeningMonth(o,mk){
+  const cur=(INV_DSR[o]&&INV_DSR[o][mk])||[];
+  const prev=(INV_DSR[o]&&INV_DSR[o][_prevMonthKey(mk)])||[];
+  return cur.length>0&&prev.length>0&&!cur.some(b=>(b.openBal||0)>0);
 }
 // Every outlet whose register is behind its latest sales month: carry its
 // latest register forward month by month up to that sales month.
