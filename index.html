@@ -16286,11 +16286,16 @@ function _renderInventoryCore(outletId){
   let displayBrands=invActiveCat==='ALL' ? brands : brands.filter(b=>b.category===invActiveCat);
   if(invSearchQ){
     const q=invSearchQ;
-    displayBrands=brands.filter(b=>
-      String(b.brand||'').toLowerCase().includes(q) ||
-      String(b.category||'').toLowerCase().includes(q) ||
-      String(b.size||'').includes(q)
-    );
+    // Every word must match the brand/category/size, ignoring a plural "s"
+    // (the TP says "GOLFERS SHOT", the register row is "GOLFER SHOT"). A TP
+    // number matches the rows that TP added, via their purchase history.
+    const words=String(q).toLowerCase().split(/\s+/).filter(Boolean).map(w=>w.length>3?w.replace(/s$/,''):w);
+    displayBrands=brands.filter(b=>{
+      const hay=(String(b.brand||'')+' '+String(b.category||'')+' '+String(b.size||'')).toLowerCase();
+      if(words.every(w=>hay.includes(w))) return true;
+      return /^(tpn|chn)?\d{6,}$/i.test(q.trim()) &&
+        (b.history||[]).some(h=>String(h.note||'').toLowerCase().includes(q.trim().toLowerCase().replace(/^chn/,'tpn')));
+    });
   }
   const cntEl=document.getElementById('invSearchCount');
   if(cntEl) cntEl.textContent=invSearchQ?(displayBrands.length+' match'+(displayBrands.length===1?'':'es')+(invActiveCat!=='ALL'?' (all categories)':'')):'';
