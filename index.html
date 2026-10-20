@@ -5032,21 +5032,7 @@ async function sbSave(){
     }
     // Save expenses — scoped to the months actually present in memory, never
     // a blanket delete of the whole expense_rows table.
-    if(expData.length){
-      const ems=[...new Set(expData.map(r=>r.month).filter(Boolean))];
-      if(ems.length){
-        await sbReq('expense_rows?month=in.('+ems.join(',')+')','DELETE').catch(()=>true);
-      }
-      for(let i=0;i<expData.length;i+=500){
-        const chunk=expData.slice(i,i+500).map(r=>({
-          date:r.date?(new Date(r.date.getTime() - r.date.getTimezoneOffset() * 60000)).toISOString().split('T')[0]:null,
-          month:r.month,sale:r.sale,veg:r.veg,dairy:r.dairy,nonveg:r.nonveg,
-          grocery:r.grocery,liquor:r.liquor,local_purch:r.localPurch,
-          maintenance:r.maintenance,misc:r.misc,hookah:r.hookah,gas:r.gas,charcoal:r.charcoal
-        }));
-        await sbReq('expense_rows?on_conflict=month,date','POST',chunk,{'Prefer':'resolution=merge-duplicates,return=minimal'});
-      }
-    }
+    if(expData.length) await _sbReplaceExpenseMonths();
     // Save P&L
     try { await sbSavePL(); } catch(e) { console.error('P&L save failed in sbSave:', e); }
     // Save Inventory
@@ -6036,19 +6022,26 @@ async function autoSaveOutlet(id, scopeDates, scopeMonths){
         {'Prefer':'resolution=merge-duplicates,return=minimal'});
       usedUpsert=true;
     }catch(e){
-      console.log('[autoSave] upsert unavailable ('+e.message+') — using scoped delete+insert fallback');
+      console.log('[autoSave] upsert unavailable ('+e.message+') — using scoped insert-then-delete fallback');
+      // Note the ids of the rows being replaced, insert the new rows, and only
+      // then delete the old ids. (Deleting first left the uploaded dates EMPTY
+      // whenever an insert chunk failed.)
+      const oldIds=[];
       if(dateSet.size){
         const list=[...dateSet].join(',');
-        await sbReq('sales_rows?outlet_id=eq.'+id+'&date=in.('+list+')','DELETE');
+        (await sbReq('sales_rows?outlet_id=eq.'+id+'&date=in.('+list+')&select=id')||[]).forEach(r=>oldIds.push(r.id));
       }
       if(monthSet.size){
         const list=[...monthSet].join(',');
-        await sbReq('sales_rows?outlet_id=eq.'+id+'&date=is.null&month=in.('+list+')','DELETE');
+        (await sbReq('sales_rows?outlet_id=eq.'+id+'&date=is.null&month=in.('+list+')&select=id')||[]).forEach(r=>oldIds.push(r.id));
       }
       const CHUNK=300;
       for(let i=0;i<toInsert.length;i+=CHUNK){
         await sbReq('sales_rows','POST',toInsert.slice(i,i+CHUNK));
         await new Promise(r=>setTimeout(r,100));
+      }
+      for(let i=0;i<oldIds.length;i+=100){
+        await sbReq('sales_rows?id=in.('+oldIds.slice(i,i+100).join(',')+')','DELETE');
       }
     }
 
@@ -6164,20 +6157,31 @@ function loadExpenseFile(file){
 }
 
 async function autoSaveExpenses(){
-  try{
-    if(!expData.length)return;
-    const ems=[...new Set(expData.map(r=>r.month).filter(Boolean))];
-    for(const m of ems){await sbReq('expense_rows?month=eq.'+m,'DELETE').catch(()=>true);}
-    for(let i=0;i<expData.length;i+=500){
-      const chunk=expData.slice(i,i+500).map(r=>({
-        date:r.date?(new Date(r.date.getTime() - r.date.getTimezoneOffset() * 60000)).toISOString().split('T')[0]:null,
-        month:r.month,sale:r.sale,veg:r.veg,dairy:r.dairy,nonveg:r.nonveg,
-        grocery:r.grocery,liquor:r.liquor,local_purch:r.localPurch,
-        maintenance:r.maintenance,misc:r.misc,hookah:r.hookah,gas:r.gas,charcoal:r.charcoal
-      }));
-      await sbReq('expense_rows','POST',chunk);
-    }
-  }catch(e){toast('Expense save failed: '+e.message,'err');console.error(e);}
+  try{ await _sbReplaceExpenseMonths(); }
+  catch(e){toast('Expense save failed: '+e.message,'err');console.error(e);}
+}
+// Replace the cloud expense rows for the months in expData. New rows are
+// inserted FIRST and the old ones deleted only after that succeeded — the
+// old DELETE-then-INSERT (and an upsert on a (month,date) key that doesn't
+// exist in the table) could leave a month empty if the insert failed.
+async function _sbReplaceExpenseMonths(){
+  if(!expData.length)return;
+  const ems=[...new Set(expData.map(r=>r.month).filter(Boolean))];
+  if(!ems.length)return;
+  const old=await sbReq('expense_rows?month=in.('+ems.join(',')+')&select=id');
+  for(let i=0;i<expData.length;i+=500){
+    const chunk=expData.slice(i,i+500).map(r=>({
+      date:r.date?(new Date(r.date.getTime() - r.date.getTimezoneOffset() * 60000)).toISOString().split('T')[0]:null,
+      month:r.month,sale:r.sale,veg:r.veg,dairy:r.dairy,nonveg:r.nonveg,
+      grocery:r.grocery,liquor:r.liquor,local_purch:r.localPurch,
+      maintenance:r.maintenance,misc:r.misc,hookah:r.hookah,gas:r.gas,charcoal:r.charcoal
+    }));
+    await sbReq('expense_rows','POST',chunk);
+  }
+  const ids=(old||[]).map(r=>r.id);
+  for(let i=0;i<ids.length;i+=100){
+    await sbReq('expense_rows?id=in.('+ids.slice(i,i+100).join(',')+')','DELETE');
+  }
 }
 function refreshExpUI(){
   const ex=document.getElementById('expSlot');if(!ex)return;
@@ -17005,17 +17009,36 @@ async function _sbSaveInvNow(onlyOid,onlyMonth){
   const outletIds=onlyOid?[onlyOid]:Object.keys(INV_DSR);
   if(!outletIds.length){console.log('sbSaveInv: nothing to save');return;}
   let totalSaved=0;
+  const failed=[];
   for(const oid of outletIds){
     const months=onlyMonth?[onlyMonth]:Object.keys(INV_DSR[oid]||{});
     for(const m of months){
-      const brands=(INV_DSR[oid]||{})[m];
+      let brands=(INV_DSR[oid]||{})[m];
+      // The table is unique on (outlet, month, brand, size) — two register rows
+      // with the same brand+size make the whole batch POST fail (23505) after
+      // the month was already deleted. Merge them into one row first.
+      if(brands&&brands.length){
+        const byKey={}, merged=[];
+        brands.forEach(b=>{
+          b.brand=String(b.brand||'').trim();
+          b.size=+b.size||0;
+          const k=b.brand+'|'+b.size;
+          const keep=byKey[k];
+          if(!keep){byKey[k]=b;merged.push(b);return;}
+          keep.openBal=(+keep.openBal||0)+(+b.openBal||0);
+          keep.received=(+keep.received||0)+(+b.received||0);
+          if(!(keep.mrp>0)&&b.mrp>0) keep.mrp=b.mrp;
+          keep.history=(keep.history||[]).concat(b.history||[]);
+        });
+        if(merged.length!==brands.length){
+          console.warn('[sbSaveInv] merged',brands.length-merged.length,'duplicate brand row(s) in',oid,m);
+          INV_DSR[oid][m]=brands=merged;
+        }
+      }
       if(!brands||!brands.length){
         if(onlyMonth) await sbReq('inventory_dsr?outlet_id=eq.'+oid+'&month=eq.'+m,'DELETE').catch(()=>{});
         continue;
       }
-      // If the DELETE fails, POSTing anyway would add a second copy of every
-      // brand — stop instead and let the caller report the failure.
-      await sbReq('inventory_dsr?outlet_id=eq.'+oid+'&month=eq.'+m,'DELETE');
       const entries=brands.map(b=>({
         outlet_id:oid, month:m,
         brand:b.brand, size_ml:b.size||0,
@@ -17026,13 +17049,34 @@ async function _sbSaveInvNow(onlyOid,onlyMonth){
         mrp:b.mrp||0,
         history:JSON.stringify(b.history||[])
       }));
-      for(let i=0;i<entries.length;i+=100){
-        await sbReq('inventory_dsr','POST',entries.slice(i,i+100));
+      // Upsert first, then remove only the rows that are no longer in the
+      // register. The old DELETE-whole-month-then-INSERT left the month EMPTY
+      // in the cloud whenever the insert failed (that is how Dwarka Jul-2026
+      // was wiped). Now a failed write leaves the previous rows in place.
+      try{
+        const existing=await sbReq('inventory_dsr?outlet_id=eq.'+oid+'&month=eq.'+m+'&select=id,brand,size_ml');
+        for(let i=0;i<entries.length;i+=100){
+          await sbReq('inventory_dsr?on_conflict=outlet_id,month,brand,size_ml','POST',entries.slice(i,i+100),
+            {'Prefer':'resolution=merge-duplicates,return=minimal'});
+        }
+        const keep=new Set(entries.map(e=>e.brand+'|'+e.size_ml));
+        const stale=(existing||[]).filter(r=>!keep.has(r.brand+'|'+(+r.size_ml||0))).map(r=>r.id);
+        for(let i=0;i<stale.length;i+=100){
+          await sbReq('inventory_dsr?id=in.('+stale.slice(i,i+100).join(',')+')','DELETE');
+        }
+        totalSaved+=entries.length;
+      }catch(e){
+        // keep saving the other months; report the failure at the end
+        console.error('[sbSaveInv] failed',oid,m,e.message);
+        failed.push(oid+' '+m+': '+e.message);
       }
-      totalSaved+=entries.length;
     }
   }
   console.log('[sbSaveInv] saved',totalSaved,'brand entries');
+  if(failed.length){
+    setCloudStatus('error','Save failed');
+    throw new Error(failed.join(' | '));
+  }
   setCloudStatus('saved','Saved ✓');
 }
 
@@ -19720,6 +19764,9 @@ async function tpApprove(){
     const monthKey=mk||_getLatestMonthKey();
     if(!INV_DSR[oid]) INV_DSR[oid]={};
     if(!INV_DSR[oid][monthKey]) INV_DSR[oid][monthKey]=[];
+    // Copy of the register before any stock is added — restored if the cloud
+    // save fails, so pressing Approve again can't add the same TP twice.
+    const regBefore=JSON.parse(JSON.stringify(INV_DSR[oid][monthKey]));
     const reg=INV_DSR[oid][monthKey];
     const dateVal=tp.tpDate||dtKey(new Date());
 
@@ -19733,7 +19780,7 @@ async function tpApprove(){
       // is never a good reason to match a different size — even when the
       // register only has ONE entry for this brand, if it's the wrong size,
       // create a new correctly-sized row instead of merging into it.
-      let b=reg.find(x=>canonBrand(x.brand).toUpperCase()===canonBrand(brandName).toUpperCase() && (x.size||650)===size);
+      let b=reg.find(x=>String(canonBrand(x.brand)).trim().toUpperCase()===String(canonBrand(brandName)).trim().toUpperCase() && (+x.size||650)===+size);
       if(!b){
         const cat=size<=500?'BEER':(L.pkg&&/can/i.test(L.pkg)?'BEER':'WHISKY');
         const guessCat = /beer|lager|can|strong|ultra|kingfisher|tuborg|budweiser|carlsberg|heineken|corona/i.test(brandName+' '+L.brandRaw)?'BEER':'WHISKY';
@@ -19749,8 +19796,13 @@ async function tpApprove(){
       added++;
     });
 
-    // persist inventory through the existing save path
-    await sbSaveInv();
+    // persist only the outlet+month this TP touched
+    try{ await sbSaveInvMonth(oid,monthKey); }
+    catch(e){
+      INV_DSR[oid][monthKey]=regBefore;
+      invalidateSoldCache();
+      throw new Error(e.message+' — nothing was added, you can approve again');
+    }
 
     // record TP header + lines in Supabase (best-effort; inventory already saved)
     const totCases=tp.lines.reduce((s,l)=>s+(l.cases||0),0);
@@ -19899,7 +19951,7 @@ function _applyTpLinesToReg(reg, tps, noteSuffix){
       // (defaults to 650), so never guess across sizes. If the register only
       // has this brand at a different size, create a new row at the right
       // size rather than merging into the wrong one.
-      let b=reg.find(x=>canonBrand(x.brand).toUpperCase()===canonBrand(brandName).toUpperCase() && (x.size||650)===size);
+      let b=reg.find(x=>String(canonBrand(x.brand)).trim().toUpperCase()===String(canonBrand(brandName)).trim().toUpperCase() && (+x.size||650)===+size);
       if(!b){
         // Brand no longer matches anything in this register (usually a
         // spelling/spacing difference after a DSR re-upload) — CREATE it rather
