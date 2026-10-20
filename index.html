@@ -19652,10 +19652,11 @@ async function tpHandleFile(ev){
     const dup=TP_HISTORY.find(h=>tpBaseNumber(h.tp_number)===parsed.tpBase);
     if(dup){ tpDuplicateModal(parsed.tpBase, dup); ev.target.value=''; tpStatus(''); return; }
 
-    // brand matching
+    // prefill from THIS outlet's own register only (never other outlets)
+    const sgCache={};
     parsed.lines.forEach(L=>{
-      const mt=tpMatchBrand(L.brandRaw, L.size);
-      L.mapped=mt.brand; L.conf=mt.conf; L.method=mt.method;
+      const mt=tpSuggest(L.brandRaw, L.size, outletId, sgCache);
+      L.mapped=mt.brand; L.conf=mt.conf; L.method=mt.method; L.options=mt.options;
     });
     parsed.outletId=outletId;
     parsed.fileName=file.name;
@@ -19683,9 +19684,10 @@ function tpRenderPreview(){
     <div class="kpi"><div class="kpi-lbl">Total Cases</div><div class="kpi-val">${fN(totCases)}</div></div>
     <div class="kpi"><div class="kpi-lbl">Total Bottles</div><div class="kpi-val">${fN(totBottles)}</div></div>`;
 
+  const emptyN=tp.lines.filter(l=>!l.mapped||!l.mapped.trim()).length;
   const lowN=tp.lines.filter(l=>l.conf<90).length;
-  document.getElementById('tpConfBadge').textContent = lowN? (lowN+' need review') : 'all matched ✓';
-  document.getElementById('tpConfBadge').style.color = lowN?'var(--rd,#ff5b6e)':'var(--gr,#2ecc71)';
+  document.getElementById('tpConfBadge').textContent = emptyN?(emptyN+' to pick'):(lowN?(lowN+' to check'):'all matched ✓');
+  document.getElementById('tpConfBadge').style.color = emptyN?'var(--rd,#ff5b6e)':(lowN?'#ffb020':'var(--gr,#2ecc71)');
 
   const body=document.getElementById('tpLinesBody');
   // Build a <datalist> of THIS outlet's DSR brand names ONLY (no master, no other outlets)
@@ -19693,7 +19695,7 @@ function tpRenderPreview(){
   const dlId='tpDsrBrandList';
   let dl=document.getElementById(dlId);
   if(!dl){ dl=document.createElement('datalist'); dl.id=dlId; body.parentNode.appendChild(dl); }
-  dl.innerHTML=dsrBrands.map(b=>`<option value="${_esc(b)}"></option>`).join('');
+  dl.innerHTML=dsrBrands.map(b=>`<option value="${_invH(_cleanBrandName(b))}"></option>`).join('');
   // Note for the user if this outlet has no DSR brands yet
   const dsrNote=document.getElementById('tpDsrNote');
   if(dsrNote) dsrNote.textContent = dsrBrands.length
@@ -19701,18 +19703,17 @@ function tpRenderPreview(){
     : '⚠ No brands found in this outlet\u2019s inventory register yet. Type the brand name manually, or upload that outlet\u2019s DSR first for suggestions.';
 
   body.innerHTML=tp.lines.map((L,i)=>{
-    const low=L.conf<90;
+    const empty=!L.mapped||!L.mapped.trim();
     const cc = L.conf>=98?'#2ecc71':(L.conf>=90?'#ffb020':'#ff5b6e');
-    const status = low?'<span style="color:#ff5b6e;font-weight:700;">⚠ Manual Review</span>':'<span style="color:#2ecc71;font-weight:700;">✓ OK</span>';
     return `<tr data-i="${i}">
-      <td style="max-width:230px;">${_esc(L.brandRaw)}</td>
+      <td style="max-width:230px;">${_invH(L.brandRaw)}</td>
       <td style="text-align:right">${L.size}ml</td>
-      <td>${_esc(L.pkg)}</td>
+      <td>${_invH(L.pkg)}</td>
       <td style="text-align:right">${L.cases}</td>
       <td style="text-align:right"><input type="number" min="0" value="${L.bottles}" class="tp-btl" data-i="${i}" style="width:70px;background:var(--sf2);border:1px solid var(--bd2);color:var(--text);border-radius:6px;padding:4px 6px;font-size:11px;text-align:right;"></td>
-      <td><input type="text" list="${dlId}" autocomplete="off" placeholder="Type to search ${dsrBrands.length} DSR brands…" value="${_esc(L.mapped)}" class="tp-map" data-i="${i}" style="width:220px;background:var(--sf2);border:1px solid ${low?'#ff5b6e':'var(--bd2)'};color:var(--text);border-radius:6px;padding:4px 8px;font-size:11px;"></td>
-      <td style="text-align:center;font-weight:800;color:${cc};">${L.conf}%</td>
-      <td style="text-align:center" class="tp-status">${status}</td>
+      <td><input type="text" list="${dlId}" autocomplete="off" placeholder="Type to search ${dsrBrands.length} DSR brands…" value="${_invH(L.mapped)}" class="tp-map" data-i="${i}" style="width:220px;background:var(--sf2);border:1px solid ${empty?'#ff5b6e':(L.conf<90?'#ffb020':'var(--bd2)')};color:var(--text);border-radius:6px;padding:4px 8px;font-size:11px;">${_tpOptChips(L.options,'tp-opt',`data-i="${i}"`)}</td>
+      <td style="text-align:center;font-weight:800;color:${cc};">${L.method==='Learned'?'✓ used before':L.conf+'%'}</td>
+      <td style="text-align:center" class="tp-status">${_tpLineStatus(L)}</td>
     </tr>`;
   }).join('');
 
@@ -19720,13 +19721,19 @@ function tpRenderPreview(){
   body.querySelectorAll('.tp-btl').forEach(inp=>inp.addEventListener('input',e=>{
     const i=+e.target.dataset.i; TP_CURRENT.lines[i].bottles=parseInt(e.target.value)||0;
   }));
-  body.querySelectorAll('.tp-map').forEach(inp=>inp.addEventListener('input',e=>{
-    const i=+e.target.dataset.i; TP_CURRENT.lines[i].mapped=e.target.value;
-    // editing the mapping clears the manual-review flag (user override = trusted)
-    TP_CURRENT.lines[i].conf=Math.max(TP_CURRENT.lines[i].conf,90);
-    const row=e.target.closest('tr');
-    row.querySelector('.tp-status').innerHTML='<span style="color:#2ecc71;font-weight:700;">✓ Edited</span>';
-    e.target.style.borderColor='var(--bd2)';
+  const setMap=(inp,v)=>{
+    const L=TP_CURRENT.lines[+inp.dataset.i];
+    L.mapped=v;
+    // a name you typed or picked is trusted
+    if(v&&v.trim()) L.conf=Math.max(L.conf,90);
+    inp.closest('tr').querySelector('.tp-status').innerHTML=_tpLineStatus(L);
+    inp.style.borderColor=(v&&v.trim())?'var(--bd2)':'#ff5b6e';
+  };
+  body.querySelectorAll('.tp-map').forEach(inp=>inp.addEventListener('input',e=>setMap(e.target,e.target.value)));
+  body.querySelectorAll('.tp-opt').forEach(btn=>btn.addEventListener('click',e=>{
+    const b=e.currentTarget, inp=b.closest('td').querySelector('.tp-map');
+    const old=inp.value; inp.value=b.dataset.v; setMap(inp,b.dataset.v);
+    if(old){ b.dataset.v=old; b.textContent=old; }
   }));
 
   document.getElementById('tpPreviewWrap').style.display='block';
@@ -19749,10 +19756,11 @@ async function tpApprove(){
   const tp=TP_CURRENT; if(!tp){ toast('Nothing to approve','err'); return; }
   if(role!=='admin'){ toast('Admin only','err'); return; }
 
-  // any remaining low-confidence rows must be resolved
-  const stillLow=tp.lines.filter(l=>l.conf<90);
+  // every row needs a brand name; prefilled amber names are accepted by
+  // pressing Approve (that IS the check)
+  const stillLow=tp.lines.filter(l=>!l.mapped||!String(l.mapped).trim());
   if(stillLow.length){
-    toast(stillLow.length+' row(s) still need a brand mapping — fix them first','err');
+    toast(stillLow.length+' row(s) still need a brand name — pick them first','err');
     return;
   }
   // final GLOBAL duplicate re-check (race-safe)
@@ -20540,6 +20548,84 @@ function tpMatchBrandOutlet(tpBrandRaw, outletId){
   return {brand:'', conf:0, method:'None'};
 }
 
+// ── Prefill a TP line with this outlet's own register name ──
+// Returns {brand, conf, method, options}. The box is ALWAYS prefilled when
+// anything reasonable exists, so a TP only needs Approve (or one click on an
+// alternative) instead of typing names:
+//   1) Learned — the name you approved last time for the same TP brand+size
+//      at this outlet (from TP history), if that row still exists here.
+//   2) Register — best match among this outlet's register names, preferring
+//      names that already have a row at this size.
+// `options` = up to 2 other close names, shown as one-click chips.
+function _tpRegIndex(outletId){
+  const months=Object.keys(INV_DSR[outletId]||{}).sort().reverse(); // latest first
+  const names=new Map(); // UPPER -> {name, sizes:Set}
+  months.forEach(mk=>(INV_DSR[outletId][mk]||[]).forEach(b=>{
+    const n=_cleanBrandName(b&&b.brand); if(!n) return;
+    const k=n.toUpperCase();
+    if(!names.has(k)) names.set(k,{name:n,sizes:new Set()});
+    names.get(k).sizes.add(+b.size||0);
+  }));
+  return names;
+}
+// Only THIS outlet's own past TPs — never another outlet's choices.
+function _tpLearned(outletId){
+  const m=new Map(); // RAW|size -> mapped (most recent first)
+  (TP_HISTORY||[]).filter(h=>h.outlet_id===outletId)
+    .sort((a,b)=>String(b.created_at||'').localeCompare(String(a.created_at||'')))
+    .forEach(h=>{
+      let lines=[]; try{ lines=typeof h.lines==='string'?JSON.parse(h.lines):(h.lines||[]); }catch(e){}
+      lines.forEach(L=>{
+        const k=String(L.brand_raw||'').toUpperCase().replace(/\s+/g,' ').trim()+'|'+(+L.size||0);
+        if(L.mapped && !m.has(k)) m.set(k,_cleanBrandName(L.mapped));
+      });
+    });
+  return m;
+}
+function tpSuggest(tpBrandRaw, sizeMl, outletId, _cache){
+  const c=_cache||{};
+  const reg=c.reg||(c.reg=_tpRegIndex(outletId));
+  const learned=c.learned||(c.learned=_tpLearned(outletId));
+  const size=+sizeMl||0;
+  const raw=String(tpBrandRaw||'').trim();
+  const up=raw.toUpperCase().replace(/\s+/g,' ');
+  if(!reg.size) return {brand:'',conf:0,method:'None',options:[]};
+
+  const rWords=up.replace(/[^A-Z0-9 ]/g,' ').split(/\s+/).filter(w=>w.length>2);
+  const fuzzyW=(a,b)=>a===b||(a.length>3&&b.length>3&&_tpSim(a,b)>=0.75);
+  const scored=[...reg.values()].map(r=>{
+    const bu=r.name.toUpperCase();
+    let s=_tpSim(up,bu);
+    const bWords=bu.replace(/[^A-Z0-9 ]/g,' ').split(/\s+/).filter(w=>w.length>2);
+    if(bWords.length&&rWords.length){
+      const inter=bWords.filter(bw=>rWords.some(rw=>fuzzyW(bw,rw))).length;
+      const dice=(2*inter)/(bWords.length+rWords.length);
+      const cover=inter/bWords.length; // every word of the register name is on the TP
+      s=Math.max(s,0.5*s+0.5*dice, cover===1?0.9:0);
+    }
+    if(canonBrand(bu).toUpperCase()===canonBrand(up).toUpperCase()) s=Math.max(s,0.97);
+    if(size&&r.sizes.has(size)) s+=0.06; else if(size) s-=0.08;
+    return {name:r.name,s};
+  }).filter(x=>x.s>=0.45).sort((a,b)=>b.s-a.s);
+
+  const lk=learned.get(up+'|'+size);
+  if(lk && reg.has(lk.toUpperCase())){
+    const name=reg.get(lk.toUpperCase()).name;
+    return {brand:name,conf:100,method:'Learned',options:scored.filter(x=>x.name!==name).slice(0,2).map(x=>x.name)};
+  }
+  if(!scored.length) return {brand:'',conf:0,method:'None',options:[]};
+  const best=scored[0];
+  const conf=Math.max(0,Math.min(99,Math.round(best.s*100)));
+  const options=scored.slice(1).filter(x=>x.s>=best.s-0.2).slice(0,2).map(x=>x.name);
+  return {brand:best.name,conf,method:conf>=98?'Alias':'Fuzzy',options};
+}
+// One-click alternative chips under a mapping box
+function _tpOptChips(opts,cls,attrs){
+  if(!opts||!opts.length) return '';
+  return '<div style="margin-top:3px;display:flex;gap:4px;flex-wrap:wrap;">'+opts.map(o=>
+    `<button type="button" class="${cls}" ${attrs} data-v="${_invH(o)}" style="background:var(--sf2);border:1px solid var(--bd2);color:var(--mu2);border-radius:10px;padding:1px 8px;font-size:10px;cursor:pointer;">${_invH(o)}</button>`).join('')+'</div>';
+}
+
 // ── Bottles-per-case guess (CSV has no pack size). Editable in the grid. ──
 function tpGuessUnitsPerCase(sizeMl, liquorType){
   const s=parseInt(sizeMl)||0; const t=(liquorType||'').toLowerCase();
@@ -20658,15 +20744,17 @@ async function tpBulkHandle(ev){
       return ta-tb || a.base.localeCompare(b.base);
     });
 
-    // brand suggestion ONLY from this outlet's DSR (no auto-approve)
+    // prefill every line with this outlet's register name (no auto-approve)
+    const sgCache={};
     pending.forEach(tp=>{
       tp.outletId=outletId;
       tp.approved=false;
       tp.lines.forEach(L=>{
-        const mt=tpMatchBrandOutlet(L.brandRaw,outletId);
-        L.mapped=mt.brand;          // '' when below 90% — you pick it
+        const mt=tpSuggest(L.brandRaw,L.size,outletId,sgCache);
+        L.mapped=mt.brand;
         L.conf=mt.conf;
         L.method=mt.method;
+        L.options=mt.options;
       });
     });
 
@@ -20690,7 +20778,7 @@ function tpBulkRender(R){
   const dlId='tpBulkDsrList';
   let dl=document.getElementById(dlId);
   if(!dl){ dl=document.createElement('datalist'); dl.id=dlId; document.body.appendChild(dl); }
-  dl.innerHTML=dsrBrands.map(b=>`<option value="${_esc(b)}"></option>`).join('');
+  dl.innerHTML=dsrBrands.map(b=>`<option value="${_invH(_cleanBrandName(b))}"></option>`).join('');
 
   const dsrWarn = dsrBrands.length
     ? `💡 ${dsrBrands.length} brand suggestions loaded from <b>${_esc(outletName)}</b>\u2019s stock register — pick from these only.`
@@ -20708,23 +20796,24 @@ function tpBulkRender(R){
   const cards=TP_BULK.map((tp,ti)=>{
     const totCases=tp.lines.reduce((s,l)=>s+(l.cases||0),0);
     const lowN=tp.lines.filter(l=>!l.mapped || l.mapped.trim()==='').length;
+    const chkN=tp.lines.filter(l=>l.mapped&&l.mapped.trim()&&l.conf<90).length;
     const rows=tp.lines.map((L,li)=>{
       const need = !L.mapped || L.mapped.trim()==='';
       const cc = L.conf>=98?'#2ecc71':(L.conf>=90?'#ffb020':'#ff5b6e');
       return `<tr data-ti="${ti}" data-li="${li}">
-        <td style="max-width:240px;">${_esc(L.brandRaw)}</td>
+        <td style="max-width:240px;">${_invH(L.brandRaw)}</td>
         <td style="text-align:right">${L.size}ml</td>
         <td style="text-align:right">${L.cases}</td>
         <td style="text-align:right"><input type="number" min="0" value="${L.bottles}" class="tpb-btl" data-ti="${ti}" data-li="${li}" style="width:66px;background:var(--sf2);border:1px solid var(--bd2);color:var(--text);border-radius:6px;padding:4px 6px;font-size:11px;text-align:right;"></td>
-        <td><input type="text" list="${dlId}" autocomplete="off" placeholder="Pick from ${dsrBrands.length} DSR brands…" value="${_esc(L.mapped)}" class="tpb-map" data-ti="${ti}" data-li="${li}" style="width:230px;background:var(--sf2);border:1px solid ${need?'#ff5b6e':'var(--bd2)'};color:var(--text);border-radius:6px;padding:4px 8px;font-size:11px;"></td>
-        <td style="text-align:center;font-weight:800;color:${cc};" class="tpb-conf">${L.conf}%</td>
-        <td style="text-align:center" class="tpb-st">${need?'<span style="color:#ff5b6e;font-weight:700;">⚠ Pick brand</span>':'<span style="color:#2ecc71;font-weight:700;">✓ OK</span>'}</td>
+        <td><input type="text" list="${dlId}" autocomplete="off" placeholder="Pick from ${dsrBrands.length} DSR brands…" value="${_invH(L.mapped)}" class="tpb-map" data-ti="${ti}" data-li="${li}" style="width:230px;background:var(--sf2);border:1px solid ${need?'#ff5b6e':(L.conf<90?'#ffb020':'var(--bd2)')};color:var(--text);border-radius:6px;padding:4px 8px;font-size:11px;">${_tpOptChips(L.options,'tpb-opt',`data-ti="${ti}" data-li="${li}"`)}</td>
+        <td style="text-align:center;font-weight:800;color:${cc};" class="tpb-conf">${L.method==='Learned'?'✓ used before':L.conf+'%'}</td>
+        <td style="text-align:center" class="tpb-st">${_tpLineStatus(L)}</td>
       </tr>`;
     }).join('');
     return `<div class="card" id="tpbCard${ti}" style="margin-top:12px;border:1px solid var(--bd2);">
       <div class="card-h" style="cursor:pointer;" onclick="tpBulkToggle(${ti})">
         <span class="card-t">📦 ${_esc(tp.tpNumber)} <span style="font-weight:500;color:var(--mu2);font-size:11px;">· ${_esc(tp.date||'—')} · ${tp.lines.length} line(s) · ${totCases} case(s)</span></span>
-        <span class="card-b" id="tpbCardBadge${ti}" style="color:${lowN?'#ff5b6e':'#2ecc71'}">${lowN?(lowN+' to map'):'ready ✓'}</span>
+        <span class="card-b" id="tpbCardBadge${ti}" style="color:${lowN?'#ff5b6e':(chkN?'#ffb020':'#2ecc71')}">${lowN?(lowN+' to map'):(chkN?(chkN+' to check'):'ready ✓')}</span>
       </div>
       <div id="tpbBody${ti}">
         <div style="font-size:11px;color:var(--mu2);margin-bottom:8px;">Supplier: ${_esc(tp.supplier||'—')}</div>
@@ -20741,8 +20830,8 @@ function tpBulkRender(R){
   }).join('');
 
   const topBar = TP_BULK.length ? `<div style="display:flex;gap:10px;flex-wrap:wrap;margin:6px 0 4px;">
-    <button class="login-btn" style="min-width:230px;" onclick="tpBulkApproveAllReady()">✓ Approve all fully-mapped TPs</button>
-    <span style="font-size:11px;color:var(--mu);align-self:center;">Only TPs with every brand picked will be approved. Inventory isn\u2019t touched until you approve.</span>
+    <button class="login-btn" style="min-width:230px;" onclick="tpBulkApproveAllReady()">✓ Approve all ready TPs</button>
+    <span style="font-size:11px;color:var(--mu);align-self:center;">Names are prefilled from this outlet\u2019s own stock register only. Green = sure, amber = check (tap an alternative under the box if it\u2019s wrong), then ✓ Approve that TP. Inventory isn\u2019t touched until you approve.</span>
   </div>` : `<div style="padding:14px;background:rgba(46,204,113,.08);border:1px solid rgba(46,204,113,.3);border-radius:10px;font-size:12.5px;color:#2ecc71;font-weight:700;">✓ Nothing pending — every active TP in this report is already uploaded.</div>`;
 
   wrap.innerHTML=summary+topBar+cards;
@@ -20753,16 +20842,25 @@ function tpBulkRender(R){
     const ti=+e.target.dataset.ti, li=+e.target.dataset.li;
     TP_BULK[ti].lines[li].bottles=parseInt(e.target.value)||0;
   }));
-  wrap.querySelectorAll('.tpb-map').forEach(inp=>inp.addEventListener('input',e=>{
-    const ti=+e.target.dataset.ti, li=+e.target.dataset.li;
-    const v=e.target.value;
-    TP_BULK[ti].lines[li].mapped=v;
-    const row=e.target.closest('tr');
-    const ok=v && v.trim()!=='';
-    row.querySelector('.tpb-st').innerHTML=ok?'<span style="color:#2ecc71;font-weight:700;">✓ Picked</span>':'<span style="color:#ff5b6e;font-weight:700;">⚠ Pick brand</span>';
-    e.target.style.borderColor=ok?'var(--bd2)':'#ff5b6e';
+  const setMap=(inp,v)=>{
+    const ti=+inp.dataset.ti, li=+inp.dataset.li, L=TP_BULK[ti].lines[li];
+    L.mapped=v;
+    if(v&&v.trim()){ L.conf=Math.max(L.conf,90); L.method=L.method==='Learned'?'Learned':'Manual'; }
+    inp.closest('tr').querySelector('.tpb-st').innerHTML=_tpLineStatus(L);
+    inp.style.borderColor=(v&&v.trim())?'var(--bd2)':'#ff5b6e';
     tpBulkUpdateCardBadge(ti);
+  };
+  wrap.querySelectorAll('.tpb-map').forEach(inp=>inp.addEventListener('input',e=>setMap(e.target,e.target.value)));
+  wrap.querySelectorAll('.tpb-opt').forEach(btn=>btn.addEventListener('click',e=>{
+    const b=e.currentTarget, inp=b.closest('td').querySelector('.tpb-map');
+    const old=inp.value; inp.value=b.dataset.v; setMap(inp,b.dataset.v);
+    if(old){ b.dataset.v=old; b.textContent=old; } // swap: the old pick becomes the chip
   }));
+}
+function _tpLineStatus(L){
+  if(!L.mapped||!L.mapped.trim()) return '<span style="color:#ff5b6e;font-weight:700;">⚠ Pick brand</span>';
+  if(L.conf<90) return '<span style="color:#ffb020;font-weight:700;">? Check name</span>';
+  return '<span style="color:#2ecc71;font-weight:700;">✓ OK</span>';
 }
 
 function tpBulkToggle(ti){
@@ -20773,8 +20871,9 @@ function tpBulkToggle(ti){
 function tpBulkUpdateCardBadge(ti){
   const tp=TP_BULK[ti]; if(!tp)return;
   const lowN=tp.lines.filter(l=>!l.mapped||l.mapped.trim()==='').length;
+  const chkN=tp.lines.filter(l=>l.mapped&&l.mapped.trim()&&l.conf<90).length;
   const badge=document.getElementById('tpbCardBadge'+ti);
-  if(badge){ badge.textContent=lowN?(lowN+' to map'):'ready ✓'; badge.style.color=lowN?'#ff5b6e':'#2ecc71'; }
+  if(badge){ badge.textContent=lowN?(lowN+' to map'):(chkN?(chkN+' to check'):'ready ✓'); badge.style.color=lowN?'#ff5b6e':(chkN?'#ffb020':'#2ecc71'); }
 }
 
 function tpBulkSkipOne(ti){
@@ -20832,8 +20931,10 @@ async function tpBulkApproveOne(ti){
 
 async function tpBulkApproveAllReady(){
   if(role!=='admin'){ toast('Admin only','err'); return; }
-  const ready=TP_BULK.map((tp,ti)=>({tp,ti})).filter(({tp})=>!tp.approved && !tp._skipped && tp.lines.every(l=>l.mapped&&l.mapped.trim()!==''));
-  if(!ready.length){ toast('No fully-mapped TPs yet — pick the remaining brands first','err'); return; }
+  // "? Check name" lines need a look first — approve those TPs one by one
+  const ready=TP_BULK.map((tp,ti)=>({tp,ti})).filter(({tp})=>!tp.approved && !tp._skipped && tp.lines.every(l=>l.mapped&&l.mapped.trim()!==''&&l.conf>=90));
+  const toCheck=TP_BULK.filter(tp=>!tp.approved&&!tp._skipped&&!ready.some(r=>r.tp===tp)).length;
+  if(!ready.length){ toast('No TPs are fully confirmed yet — check the amber names, then press ✓ Approve on each TP','err'); return; }
   showLoad('Approving '+ready.length+' TP(s)…');
   let done=0,fail=0;
   for(const {ti} of ready){
@@ -20842,7 +20943,7 @@ async function tpBulkApproveAllReady(){
   }
   hideLoad();
   toast('✓ Approved '+done+' TP(s)'+(fail?(' · '+fail+' failed'):''), fail?'err':'ok');
-  tpBulkStatus('Approved '+done+' TP(s). Remaining ones still need brand mapping.', 'ok');
+  tpBulkStatus('Approved '+done+' TP(s).'+(toCheck?' '+toCheck+' TP(s) left — check the amber names and press ✓ Approve on each.':''), 'ok');
 }
 
 window.DaaruTPBulk={extract:tpBulkExtract,match:tpMatchBrandOutlet,brands:tpOutletBrandsOnly};
