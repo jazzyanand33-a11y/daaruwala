@@ -2518,12 +2518,12 @@ html,body{font-family:var(--ui);letter-spacing:.1px;}
   <div class="page" id="page-staff">
     <div style="display:flex;justify-content:space-between;align-items:flex-start;flex-wrap:wrap;gap:12px;">
       <div>
-        <h2 style="font-size:20px;font-weight:800;">👥 Staff Attendance &amp; Salary</h2>
-        <p style="font-size:12px;color:var(--mu2);margin-top:4px;max-width:720px;">Click a day cell to cycle <b style="color:#26d782">P</b> Present → <b style="color:#ff5470">A</b> Absent → <b style="color:#ffb020">H</b> Half-day → <b style="color:#2a86ff">WO</b> Week-off (paid) → <b style="color:#a78bfa">L</b> Paid leave → blank. Salary is <b>per day = monthly salary ÷ days in the month</b>, paid for P + WO + L + ½ H. Net = earned + bonus − advance.</p>
+        <h2 style="font-size:20px;font-weight:800;" id="stTitle">👥 Staff Attendance &amp; Salary</h2>
+        <p id="stHelp" style="font-size:12px;color:var(--mu2);margin-top:4px;max-width:720px;">Click a day cell to cycle <b style="color:#26d782">P</b> Present → <b style="color:#ff5470">A</b> Absent → <b style="color:#ffb020">H</b> Half-day → <b style="color:#2a86ff">WO</b> Week-off (paid) → <b style="color:#a78bfa">L</b> Paid leave → blank. Salary is <b>per day = monthly salary ÷ days in the month</b>, paid for P + WO + L + ½ H. Net = earned + bonus − advance.</p>
       </div>
       <div style="display:flex;gap:8px;flex-wrap:wrap;">
         <button class="login-btn" style="width:auto;padding:9px 18px;" onclick="stOpenStaffModal()">➕ Add Staff</button>
-        <button class="login-btn" style="width:auto;padding:9px 18px;background:var(--sf2);color:var(--text);border:1px solid var(--bd);" onclick="stExportExcel()">📥 Export Excel</button>
+        <button class="login-btn" style="width:auto;padding:9px 18px;background:var(--sf2);color:var(--text);border:1px solid var(--bd);" onclick="stExportExcel()" id="stExportBtn">📥 Export Excel</button>
       </div>
     </div>
     <div id="stCloudNote" style="font-size:11px;margin:8px 0;"></div>
@@ -20981,6 +20981,9 @@ function _stLocal(k,v){
 function _stA(s){ return String(s==null?"":s).replace(/&/g,"&amp;").replace(/"/g,"&quot;").replace(/</g,"&lt;").replace(/>/g,"&gt;"); }
 function _stDim(mk){ const [y,m]=mk.split('-').map(Number); return new Date(y,m,0).getDate(); }
 function _stDayKey(mk,d){ return mk+'-'+String(d).padStart(2,'0'); }
+// Attendance-only login (Karam) marks attendance but must never see salary,
+// per-day rate, earned, bonus, advance or net pay.
+function _stHideSal(){ return role==='attendance'; }
 
 async function buildStaffPage(){
   const oSel=document.getElementById('stOutlet');
@@ -21000,7 +21003,9 @@ async function buildStaffPage(){
 
 async function stLoadStaff(){
   try{
-    const rows=await sbReq('staff_master?select=*&order=outlet_id.asc,name.asc');
+    // Attendance-only login never even downloads the salary column.
+    const cols=_stHideSal()?'id,outlet_id,name,designation,phone,joining_date,active':'*';
+    const rows=await sbReq('staff_master?select='+cols+'&order=outlet_id.asc,name.asc');
     ST_STAFF=(rows||[]).map(r=>({...r, monthly_salary:+r.monthly_salary||0}));
     _stCloudOk=true;
   }catch(e){
@@ -21020,7 +21025,7 @@ async function stLoadMonth(){
     try{
       const att=await sbReq(`staff_attendance?select=staff_id,att_date,status&att_date=gte.${from}&att_date=lte.${to}`);
       (att||[]).forEach(a=>{ (ST_ATT[a.staff_id]=ST_ATT[a.staff_id]||{})[String(a.att_date).slice(0,10)]=a.status; });
-      const adj=await sbReq(`staff_payroll_adj?select=*&month=eq.${ST_MONTH}`);
+      const adj=_stHideSal()?[]:await sbReq(`staff_payroll_adj?select=*&month=eq.${ST_MONTH}`);
       (adj||[]).forEach(a=>{ ST_ADJ[a.staff_id]={advance:+a.advance||0,bonus:+a.bonus||0,remarks:a.remarks||''}; });
     }catch(e){ console.warn('[staff] month load failed:',e.message); toast('⚠ Could not load attendance: '+e.message,'err'); }
   }else{
@@ -21073,6 +21078,12 @@ function stRender(){
   const today=(typeof _istDay==='function')?_istDay():dtKey(new Date());
   const outlets=OUTLETS.filter(o=>oid==='ALL'||o.id===oid);
 
+  const hide=_stHideSal();
+  const tEl=document.getElementById('stTitle'); if(tEl) tEl.innerHTML=hide?'👥 Staff Attendance':'👥 Staff Attendance &amp; Salary';
+  const hEl=document.getElementById('stHelp'); if(hEl) hEl.innerHTML=hide
+    ?'Click a day cell to cycle <b style="color:#26d782">P</b> Present → <b style="color:#ff5470">A</b> Absent → <b style="color:#ffb020">H</b> Half-day → <b style="color:#2a86ff">WO</b> Week-off → <b style="color:#a78bfa">L</b> Leave → blank.'
+    :'Click a day cell to cycle <b style="color:#26d782">P</b> Present → <b style="color:#ff5470">A</b> Absent → <b style="color:#ffb020">H</b> Half-day → <b style="color:#2a86ff">WO</b> Week-off (paid) → <b style="color:#a78bfa">L</b> Paid leave → blank. Salary is <b>per day = monthly salary ÷ days in the month</b>, paid for P + WO + L + ½ H. Net = earned + bonus − advance.';
+  const xBtn=document.getElementById('stExportBtn'); if(xBtn) xBtn.style.display=hide?'none':'';
   // KPIs
   let gSal=0,gEarn=0,gNet=0,gAdv=0,gUnmarked=0;
   const calcs={};
@@ -21085,10 +21096,10 @@ function stRender(){
   document.getElementById('stKpis').innerHTML=`
     <div class="kpi"><div class="kpi-lbl">Active Staff</div><div class="kpi-val">${staff.length}</div></div>
     <div class="kpi"><div class="kpi-lbl">Present Today</div><div class="kpi-val">${presentToday==null?'—':presentToday+'/'+staff.length}</div></div>
-    <div class="kpi"><div class="kpi-lbl">Full Monthly Salary</div><div class="kpi-val">${fF(gSal)}</div></div>
+    ${hide?'':`<div class="kpi"><div class="kpi-lbl">Full Monthly Salary</div><div class="kpi-val">${fF(gSal)}</div></div>
     <div class="kpi"><div class="kpi-lbl">Earned (day-based)</div><div class="kpi-val">${fF(gEarn)}</div></div>
     <div class="kpi"><div class="kpi-lbl">Advances</div><div class="kpi-val">${fF(gAdv)}</div></div>
-    <div class="kpi"><div class="kpi-lbl">Net Payable</div><div class="kpi-val" style="color:#26d782">${fF(gNet)}</div></div>
+    <div class="kpi"><div class="kpi-lbl">Net Payable</div><div class="kpi-val" style="color:#26d782">${fF(gNet)}</div></div>`}
     <div class="kpi"><div class="kpi-lbl">Unmarked Past Days</div><div class="kpi-val" style="color:${gUnmarked?'#ff5470':'#26d782'}">${gUnmarked}</div></div>`;
 
   const dayHead=Array.from({length:dim},(_,i)=>{
@@ -21118,26 +21129,26 @@ function stRender(){
       return `<tr>
         <td style="white-space:nowrap;position:sticky;left:0;background:var(--sf);z-index:1;">
           <b>${_esc(s.name)}</b> <span onclick="stOpenStaffModal('${sid}')" title="Edit staff" style="cursor:pointer;font-size:11px;">✏️</span><br>
-          <span style="font-size:10px;color:var(--mu2)">${_esc(s.designation||'')} · ${fF(s.monthly_salary)}/mo</span></td>
+          <span style="font-size:10px;color:var(--mu2)">${_esc(s.designation||'')}${hide?'':' · '+fF(s.monthly_salary)+'/mo'}</span></td>
         ${cells}
         <td class="num" style="color:#26d782">${c.P}</td><td class="num" style="color:#ff5470">${c.A}</td><td class="num" style="color:#ffb020">${c.H}</td>
         <td class="num" style="color:#2a86ff">${c.WO}</td><td class="num" style="color:#a78bfa">${c.L}</td>
         <td class="num"><b>${c.paidDays}</b>/${c.dim}</td>
-        <td class="num">${'₹'+c.perDay.toFixed(2)}</td>
+        ${hide?'':`<td class="num">${'₹'+c.perDay.toFixed(2)}</td>
         <td class="num"><b>${fF(c.earned)}</b></td>
         <td><input type="number" min="0" class="form-input" value="${c.bonus||''}" placeholder="0" onchange="stSetAdj('${sid}','bonus',this.value)" style="width:80px;padding:4px 6px;font-size:11px;"></td>
         <td><input type="number" min="0" class="form-input" value="${c.advance||''}" placeholder="0" onchange="stSetAdj('${sid}','advance',this.value)" style="width:80px;padding:4px 6px;font-size:11px;"></td>
-        <td class="num" style="color:#26d782;font-weight:800;">${fF(c.net)}</td>
+        <td class="num" style="color:#26d782;font-weight:800;">${fF(c.net)}</td>`}
       </tr>`;
     }).join('');
     html+=`<div class="card">
       <div class="card-h"><span class="card-t">${o.icon} ${_esc(o.name)} — ${monthLabel(ST_MONTH)}</span>
-        <span class="card-b">${list.length} staff · Earned ${fF(tEarn)} · Net ${fF(tNet)}</span></div>
+        <span class="card-b">${list.length} staff${hide?'':` · Earned ${fF(tEarn)} · Net ${fF(tNet)}`}</span></div>
       ${list.length?`<div style="overflow-x:auto;"><table class="tbl" style="font-size:11px;border-collapse:collapse;">
         <thead><tr><th style="text-align:left;position:sticky;left:0;background:var(--sf);z-index:2;min-width:150px;">Staff</th>${dayHead}
-          <th>P</th><th>A</th><th>H</th><th>WO</th><th>L</th><th>Paid Days</th><th>Per Day</th><th>Earned</th><th>Bonus/OT</th><th>Advance</th><th>Net Pay</th></tr></thead>
+          <th>P</th><th>A</th><th>H</th><th>WO</th><th>L</th><th>Paid Days</th>${hide?'':'<th>Per Day</th><th>Earned</th><th>Bonus/OT</th><th>Advance</th><th>Net Pay</th>'}</tr></thead>
         <tbody>${rows}</tbody>
-        <tfoot><tr style="font-weight:800;"><td style="position:sticky;left:0;background:var(--sf);">Total (${fF(tSal)}/mo)</td><td colspan="${dim+7}"></td><td class="num">${fF(tEarn)}</td><td></td><td></td><td class="num" style="color:#26d782">${fF(tNet)}</td></tr></tfoot>
+        ${hide?'':`<tfoot><tr style="font-weight:800;"><td style="position:sticky;left:0;background:var(--sf);">Total (${fF(tSal)}/mo)</td><td colspan="${dim+7}"></td><td class="num">${fF(tEarn)}</td><td></td><td></td><td class="num" style="color:#26d782">${fF(tNet)}</td></tr></tfoot>`}
       </table></div>`:`<div class="empty">No staff added for ${_esc(o.name)} yet. Click ➕ Add Staff.</div>`}
     </div>`;
   });
@@ -21221,7 +21232,7 @@ function stOpenStaffModal(editId){
     ${f('stfName','Name *',s&&s.name)}
     ${f('stfDesig','Designation (Waiter, Cook, Bartender…)',s&&s.designation)}
     ${f('stfPhone','Phone',s&&s.phone)}
-    ${f('stfSalary','Monthly Salary (₹) — optional, can be added later',s?s.monthly_salary:'','number')}
+    ${_stHideSal()?'':f('stfSalary','Monthly Salary (₹) — optional, can be added later',s?s.monthly_salary:'','number')}
     ${f('stfJoin','Joining Date (days before it are not counted)',s&&s.joining_date?String(s.joining_date).slice(0,10):'','date')}
     <div style="display:flex;gap:8px;justify-content:space-between;margin-top:16px;flex-wrap:wrap;">
       <div>${s?`<button class="login-btn" style="width:auto;padding:9px 14px;background:rgba(255,84,112,.15);color:#ff5470;border:1px solid rgba(255,84,112,.4);" onclick="stDeactivate('${s.id}')">🚫 Left job / remove</button>`:''}</div>
@@ -21237,6 +21248,8 @@ async function stSaveStaff(editId){
   const v=id=>(document.getElementById(id)||{}).value||'';
   const row={outlet_id:v('stfOutlet'), name:v('stfName').trim(), designation:v('stfDesig').trim()||null,
     phone:v('stfPhone').trim()||null, monthly_salary:+v('stfSalary')||0, joining_date:v('stfJoin')||null, active:true};
+  // Attendance login has no salary field: never overwrite the salary admin entered.
+  if(_stHideSal()) delete row.monthly_salary;
   if(!row.name){ toast('Enter staff name','err'); return; }
   if(row.monthly_salary<0){ toast('Salary cannot be negative','err'); return; }
   if(_stCloudOk){
@@ -21270,6 +21283,7 @@ async function stDeactivate(id){
 
 // ── Excel: one sheet per outlet (day grid + salary) + a Summary sheet ──
 function stExportExcel(){
+  if(_stHideSal()) return;
   if(typeof XLSX==='undefined'){ toast('Excel library not loaded','err'); return; }
   const staff=_stVisibleStaff();
   if(!staff.length){ toast('No staff to export','err'); return; }
