@@ -737,6 +737,7 @@ html,body{font-family:var(--ui);letter-spacing:.1px;}
     <button class="nav-tab" onclick="showPage('items',this);toggleSidebar(false)" data-testid="nav-items"><span class="tab-icon">🏆</span><span>Top Items</span></button>
     <button class="nav-tab" onclick="showPage('categories',this);toggleSidebar(false)" data-testid="nav-categories"><span class="tab-icon">🍱</span><span>Categories</span></button>
     <button class="nav-tab" onclick="showPage('brandsales',this);toggleSidebar(false)" data-testid="nav-brandsales"><span class="tab-icon">🍾</span><span>Liquor Brands</span></button>
+    <button class="nav-tab" onclick="showPage('margin',this);toggleSidebar(false)" data-testid="nav-margin"><span class="tab-icon">📐</span><span>MRP Margin</span></button>
     <button class="nav-tab" onclick="showPage('packages',this);toggleSidebar(false)" data-testid="nav-packages"><span class="tab-icon">📦</span><span>Package Analytics</span></button>
     <button class="nav-tab" onclick="showPage('segments',this);toggleSidebar(false)" data-testid="nav-segments"><span class="tab-icon">🧾</span><span>Segment Sales</span></button>
     <button class="nav-tab" onclick="showPage('compare',this);toggleSidebar(false)" data-testid="nav-compare"><span class="tab-icon">📅</span><span>Compare Months</span></button>
@@ -960,6 +961,7 @@ html,body{font-family:var(--ui);letter-spacing:.1px;}
 
   <!-- BRAND SALES (consolidated direct + package) -->
   <div class="page" id="page-brandsales"></div>
+  <div class="page" id="page-margin"></div>
 
   <!-- PACKAGE SALES ANALYTICS -->
   <div class="page" id="page-packages"></div>
@@ -3930,6 +3932,253 @@ function showBrandDetail(brand, outletOverride){
   setTimeout(()=>{drawLine('brandDailyChart',days.map(d=>fD(new Date(d))),days.map(d=>b.days[d].rev),b.brand,'#ff8c1a');},50);
 }
 
+// ── MRP MARGIN PAGE (Beer & Whisky) ─────────────────────────────────────
+// Margin per outlet = what the outlet sold a SKU for vs that SKU's MRP in
+// THAT outlet's own DSR (bottles sold × MRP = cost, same basis as Liquor
+// Cost %). Sales go through _resolveSaleLineCached, the same resolver
+// Inventory deducts with, so pegs / packs / combos count the same bottles.
+let _mgnOutlet='ALL', _mgnCat='BEER', _mgnMonthSel=null, _mgnSort='rev', _mgnSortDir=-1, _mgnSearch='', _mgnLast=null;
+const _MGN_BANDS={
+  BEER:[[0,150],[150,200],[200,250],[250,300],[300,400],[400,Infinity]],
+  WHISKY:[[0,300],[300,600],[600,1000],[1000,1500],[1500,2500],[2500,4000],[4000,Infinity]]
+};
+function _mgnH(s){return String(s==null?'':s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');}
+function _mgnCatOf(dsrCat, brand){
+  const c=String(dsrCat||'').toUpperCase();
+  if(/BEER/.test(c)) return 'BEER';
+  if(/WHISK|SCOTCH|BOURBON|MALT/.test(c)) return 'WHISKY';
+  if(c) return 'OTHER';
+  const g=pkgBrandCategory(brand);
+  return (g==='BEER'||g==='WHISKY')?g:'OTHER';
+}
+function _mgnBandLabel(cat,i){
+  const [a,b]=_MGN_BANDS[cat][i];
+  return b===Infinity?('₹'+fN(a)+'+'):('₹'+fN(a)+' – '+fN(b));
+}
+function _mgnBandIdx(cat,mrp){
+  const B=_MGN_BANDS[cat]; for(let i=0;i<B.length;i++){ if(mrp>=B[i][0]&&mrp<B[i][1]) return i; } return B.length-1;
+}
+// Per outlet+month index of DSR rows: canonical brand → [{size,mrp,category,brand}]
+let _mgnIdxCache={};
+function _mgnIndex(oid,mk){
+  const ck=oid+'||'+mk;
+  if(_mgnIdxCache[ck]) return _mgnIdxCache[ck];
+  const idx={};
+  ((INV_DSR[oid]&&INV_DSR[oid][mk])||[]).forEach(b=>{
+    if(!b||!b.brand) return;
+    const keys=new Set([canonBrand(b.brand).toUpperCase(), (typeof _normName==='function'?_normName(b.brand):b.brand.toUpperCase())]);
+    keys.forEach(k=>{ (idx[k]=idx[k]||[]).push({brand:b.brand,size:+b.size||0,mrp:+b.mrp||0,category:b.category||''}); });
+  });
+  _mgnIdxCache[ck]=idx; return idx;
+}
+function _mgnPick(list,size){
+  if(!list||!list.length) return null;
+  if(size) return list.find(x=>x.size===size)||null;
+  // sizeless = poured from / sold as the full bottle
+  return list.find(x=>x.size===750)||list.find(x=>x.size===0)||list.find(x=>x.size===700)||list.find(x=>x.size===1000)
+    ||(new Set(list.map(x=>x.size)).size===1?list[0]:null)
+    ||list.filter(x=>x.size>=650).sort((a,b)=>b.size-a.size)[0]||null;
+}
+// Find the DSR row (with MRP) for a brand+size at an outlet: same month first,
+// then the nearest other month at the same outlet.
+function _mgnLookup(oid,mk,brand,size){
+  const keys=[canonBrand(brand).toUpperCase(), (typeof _normName==='function'?_normName(brand):brand.toUpperCase())];
+  const tryMonth=m=>{ const idx=_mgnIndex(oid,m); for(const k of keys){ const r=_mgnPick(idx[k],size); if(r) return r; } return null; };
+  let row=tryMonth(mk), meta=row;
+  if(row&&row.mrp>0) return row;
+  const months=Object.keys(INV_DSR[oid]||{}).filter(m=>m!==mk).sort((a,b)=>Math.abs(_mgnMonthDist(a,mk))-Math.abs(_mgnMonthDist(b,mk)));
+  for(const m of months){ const r=tryMonth(m); if(r&&r.mrp>0) return Object.assign({},r,{fromMonth:m}); if(!meta&&r) meta=r; }
+  return meta?Object.assign({},meta,{mrp:0}):null;
+}
+function _mgnMonthDist(a,b){ const [y1,m1]=a.split('-').map(Number),[y2,m2]=b.split('-').map(Number); return (y1*12+m1)-(y2*12+m2); }
+
+function _mgnCompute(){
+  _mgnIdxCache={};
+  const skus={};   // oid|cat|brand|size → row
+  OUTLETS.forEach(o=>{
+    filteredRows(oData[o.id]||[]).forEach(r=>{
+      const mk=r.month||(r.date?monthKey(r.date):'');
+      if(_mgnMonthSel instanceof Set && _mgnMonthSel.size && !_mgnMonthSel.has(mk)) return;
+      const rev=+r.total||0, qty=+r.qty||0;
+      if(!qty&&!rev) return;
+      const res=_resolveSaleLineCached(r.item||'', qty, o.id, r.cat||r.flt);
+      if(res.status!=='mapped'||!res.parts.length) return;
+      const totB=res.parts.reduce((s,p)=>s+p.bottles,0)||1;
+      res.parts.forEach(p=>{
+        const share=p.bottles/totB, aRev=rev*share;
+        const dsr=_mgnLookup(o.id,mk,p.brand,p.size);
+        const cat=_mgnCatOf(dsr&&dsr.category, p.brand);
+        if(cat==='OTHER') return;
+        const size=(dsr&&dsr.size)||p.size||(cat==='WHISKY'?750:0);
+        const name=dsr?dsr.brand:canonBrand(p.brand);
+        const key=o.id+'|'+cat+'|'+canonBrand(name).toUpperCase()+'|'+size;
+        const S=skus[key]||(skus[key]={oid:o.id,outlet:o.name,color:o.color,cat,brand:canonBrand(name).toUpperCase(),size,
+          mrp:0,bottles:0,rev:0,cost:0,costedRev:0,pegRev:0,pegBtl:0,pkgRev:0,noMrpRev:0,mrpSeen:{}});
+        const mrp=dsr?dsr.mrp:0;
+        S.bottles+=p.bottles; S.rev+=aRev;
+        if(p.factor<0.999){ S.pegRev+=aRev; S.pegBtl+=p.bottles; }
+        if(res.parts.length>1||p.factor>1.0001) S.pkgRev+=aRev;
+        if(mrp>0){ S.cost+=mrp*p.bottles; S.costedRev+=aRev; S.mrpSeen[mrp]=(S.mrpSeen[mrp]||0)+p.bottles; }
+        else S.noMrpRev+=aRev;
+      });
+    });
+  });
+  const list=Object.values(skus).map(S=>{
+    const mrps=Object.entries(S.mrpSeen).sort((a,b)=>b[1]-a[1]);
+    S.mrp=mrps.length?+mrps[0][0]:0;              // most-used MRP in the period
+    S.mrpVaried=mrps.length>1;
+    S.gp=S.costedRev-S.cost;
+    S.margin=S.costedRev>0?S.gp/S.costedRev*100:null;
+    S.markup=S.cost>0?S.costedRev/S.cost:null;
+    S.asp=S.bottles>0?S.rev/S.bottles:0;
+    S.pegPct=S.rev>0?S.pegRev/S.rev*100:0;
+    return S;
+  });
+  return list;
+}
+function _mgnAgg(rows){
+  const a={rev:0,cost:0,costedRev:0,noMrpRev:0,bottles:0,pegRev:0,n:rows.length};
+  rows.forEach(r=>{a.rev+=r.rev;a.cost+=r.cost;a.costedRev+=r.costedRev;a.noMrpRev+=r.noMrpRev;a.bottles+=r.bottles;a.pegRev+=r.pegRev;});
+  a.gp=a.costedRev-a.cost; a.margin=a.costedRev>0?a.gp/a.costedRev*100:null; a.cover=a.rev>0?a.costedRev/a.rev*100:0;
+  return a;
+}
+function _mgnClr(m){
+  if(m==null) return 'var(--mu2)';
+  return m>=60?'#26d782':m>=45?'#7bd389':m>=30?'#ffb020':'#ff5470';
+}
+function _mgnPct(m){ return m==null?'<span style="color:var(--mu2)">n/a</span>':`<b style="color:${_mgnClr(m)}">${m.toFixed(1)}%</b>`; }
+
+function buildMarginPage(){
+  const host=document.getElementById('page-margin');
+  if(!host) return;
+  if(!OUTLETS.some(o=>(oData[o.id]||[]).length)){ host.innerHTML='<div class="card"><div class="empty">No sales loaded yet.</div></div>'; return; }
+  const all=_mgnCompute(); _mgnLast=all;
+  const allMonths=_allSalesMonths();
+  const selMonths=_mgnMonthSel||new Set(allMonths);
+  const inOutlet=r=>_mgnOutlet==='ALL'||r.oid===_mgnOutlet;
+  const scope=all.filter(inOutlet);
+  const beer=_mgnAgg(scope.filter(r=>r.cat==='BEER')), whisky=_mgnAgg(scope.filter(r=>r.cat==='WHISKY'));
+  const chip=(on,clr,label,onclick)=>`<button onclick="${onclick}" style="font-size:11px;padding:5px 11px;border-radius:14px;cursor:pointer;font-weight:700;border:1px solid ${on?clr:'var(--bd)'};background:${on?clr+'22':'transparent'};color:${on?clr:'var(--mu2)'};">${label}</button>`;
+  const outletChips=[chip(_mgnOutlet==='ALL','#ff8c1a','🏢 All Outlets',"_mgnSetOutlet('ALL')")]
+    .concat(OUTLETS.map(o=>chip(_mgnOutlet===o.id,o.color||'#ff8c1a',(o.icon||'')+' '+_mgnH(o.name),`_mgnSetOutlet('${o.id}')`))).join('');
+  const monthChips=[chip(!_mgnMonthSel,'#7c5cf5','All',"_mgnSetMonths('ALL')"),chip(false,'#7c5cf5','Last 1',"_mgnSetMonths(1)"),chip(false,'#7c5cf5','Last 3',"_mgnSetMonths(3)")]
+    .concat(allMonths.map(m=>chip(!!_mgnMonthSel&&selMonths.has(m),'#7c5cf5',monthLabel(m),`_mgnToggleMonth('${m}')`))).join('');
+  const periodNote=(filterFrom||filterTo)?' · top date filter is applied too':'';
+
+  const kpi=(clr,lbl,val,sub)=>`<div class="kpi" style="--clr:${clr}"><div class="kpi-lbl">${lbl}</div><div class="kpi-val">${val}</div><div class="kpi-sub">${sub}</div></div>`;
+  const kpis=`<div class="kpi-row" style="margin-bottom:16px">
+    ${kpi('#ffb020','🍺 Beer Margin',beer.margin==null?'n/a':beer.margin.toFixed(1)+'%',`GP ${fI(beer.gp)} on ${fI(beer.costedRev)} sales`)}
+    ${kpi('#ffb020','🍺 Beer Sales / Cost',fI(beer.rev),`cost at MRP ${fI(beer.cost)} · ${fN(beer.bottles)} btl`)}
+    ${kpi('#a0522d','🥃 Whisky Margin',whisky.margin==null?'n/a':whisky.margin.toFixed(1)+'%',`GP ${fI(whisky.gp)} on ${fI(whisky.costedRev)} sales`)}
+    ${kpi('#a0522d','🥃 Whisky Sales / Cost',fI(whisky.rev),`cost at MRP ${fI(whisky.cost)} · ${whisky.bottles.toFixed(1)} btl · ${whisky.rev?(whisky.pegRev/whisky.rev*100).toFixed(0):0}% pegs`)}
+  </div>`;
+
+  // Outlet comparison
+  const outRows=OUTLETS.map(o=>{
+    const b=_mgnAgg(all.filter(r=>r.oid===o.id&&r.cat==='BEER')), w=_mgnAgg(all.filter(r=>r.oid===o.id&&r.cat==='WHISKY'));
+    return {o,b,w};
+  }).filter(x=>x.b.rev>0||x.w.rev>0);
+  const bar=(m,clr)=>m==null?'':`<div style="height:5px;background:var(--sf2);border-radius:3px;margin-top:3px;"><div style="height:5px;width:${Math.max(0,Math.min(100,m)).toFixed(1)}%;background:${clr};border-radius:3px;"></div></div>`;
+  const covTxt=a=>a.rev>0&&a.cover<99.5?`<div style="font-size:9.5px;color:#ff5470" title="Sales of SKUs with no MRP in this outlet's DSR are left out of the margin">${a.cover.toFixed(0)}% costed</div>`:'';
+  const outletTable=`<div class="card" style="margin-bottom:16px">
+    <div class="card-h"><span class="card-t">🏪 Margin by Outlet</span><span class="card-b">each outlet uses its own DSR MRP</span></div>
+    <div style="overflow-x:auto"><table class="tbl" style="font-size:12px"><thead><tr><th>Outlet</th>
+      <th style="text-align:right">🍺 Sales</th><th style="text-align:right">🍺 Cost (MRP)</th><th style="text-align:right">🍺 GP</th><th style="text-align:right;min-width:90px">🍺 Margin</th>
+      <th style="text-align:right">🥃 Sales</th><th style="text-align:right">🥃 Cost (MRP)</th><th style="text-align:right">🥃 GP</th><th style="text-align:right;min-width:90px">🥃 Margin</th></tr></thead>
+    <tbody>${outRows.map(({o,b,w})=>`<tr style="cursor:pointer;${_mgnOutlet===o.id?'background:var(--sf2)':''}" onclick="_mgnSetOutlet('${o.id}')">
+      <td><b style="color:${o.color||'inherit'}">${o.icon||''} ${_mgnH(o.name)}</b></td>
+      <td class="num">${fI(b.rev)}</td><td class="num">${fI(b.cost)}</td><td class="num">${fI(b.gp)}</td><td class="num">${_mgnPct(b.margin)}${bar(b.margin,'#ffb020')}${covTxt(b)}</td>
+      <td class="num">${fI(w.rev)}</td><td class="num">${fI(w.cost)}</td><td class="num">${fI(w.gp)}</td><td class="num">${_mgnPct(w.margin)}${bar(w.margin,'#a0522d')}${covTxt(w)}</td>
+    </tr>`).join('')||'<tr><td colspan="9" class="empty">No beer or whisky sales in this period</td></tr>'}</tbody></table></div>
+  </div>`;
+
+  // MRP band matrix for the chosen category: rows = MRP band, columns = outlets
+  const cat=_mgnCat, catRows=all.filter(r=>r.cat===cat&&r.mrp>0);
+  const bands=_MGN_BANDS[cat].map((_,i)=>i);
+  const cols=OUTLETS.filter(o=>catRows.some(r=>r.oid===o.id));
+  const cell=rows=>{const a=_mgnAgg(rows); if(!a.rev) return '<td class="num" style="color:var(--mu2)">—</td>';
+    const m=a.margin, c=_mgnClr(m);
+    return `<td class="num" style="background:${m==null?'transparent':c+'1f'}" title="Sales ${fF(a.costedRev)} · Cost ${fF(a.cost)} · GP ${fF(a.gp)} · ${rows.length} SKU(s)">${_mgnPct(m)}<div style="font-size:9.5px;color:var(--mu2)">${fI(a.costedRev)}</div></td>`;};
+  const catBtn=(id,label,clr)=>`<button onclick="_mgnSetCat('${id}')" style="font-size:12px;padding:6px 14px;border-radius:9px;cursor:pointer;font-weight:800;border:2px solid ${_mgnCat===id?clr:'var(--bd)'};background:${_mgnCat===id?clr+'22':'transparent'};color:${_mgnCat===id?clr:'var(--mu2)'};">${label}</button>`;
+  const bandTable=`<div class="card" style="margin-bottom:16px">
+    <div class="card-h" style="flex-wrap:wrap;gap:8px"><span class="card-t">💰 Margin by MRP Band</span>
+      <span style="display:flex;gap:6px">${catBtn('BEER','🍺 Beer','#ffb020')}${catBtn('WHISKY','🥃 Whisky','#a0522d')}</span></div>
+    <div style="font-size:11px;color:var(--mu2);margin-bottom:8px">Bands use the SKU's MRP as entered in the DSR (per bottle/can of that size). Cell = margin % · sales below. Hover for cost and GP.</div>
+    <div style="overflow-x:auto"><table class="tbl" style="font-size:12px"><thead><tr><th>MRP band</th>${cols.map(o=>`<th style="text-align:right">${o.icon||''} ${_mgnH(o.name)}</th>`).join('')}<th style="text-align:right">All outlets</th></tr></thead>
+    <tbody>${bands.map(i=>{const inB=catRows.filter(r=>_mgnBandIdx(cat,r.mrp)===i); if(!inB.length) return '';
+      return `<tr><td><b>${_mgnBandLabel(cat,i)}</b><div style="font-size:9.5px;color:var(--mu2)">${new Set(inB.map(r=>r.brand+'|'+r.size)).size} SKU(s)</div></td>${cols.map(o=>cell(inB.filter(r=>r.oid===o.id))).join('')}${cell(inB)}</tr>`;}).join('')||`<tr><td colspan="${cols.length+2}" class="empty">No ${cat.toLowerCase()} sales with an MRP in this period</td></tr>`}
+    ${catRows.length?`<tr style="border-top:2px solid var(--bd2)"><td><b>Total</b></td>${cols.map(o=>cell(catRows.filter(r=>r.oid===o.id))).join('')}${cell(catRows)}</tr>`:''}</tbody></table></div>
+  </div>`;
+
+  const noMrp=scope.filter(r=>r.cat===cat&&r.noMrpRev>0).sort((a,b)=>b.noMrpRev-a.noMrpRev);
+  const warn=noMrp.length?`<div style="margin-bottom:14px;padding:10px 14px;border-radius:10px;border:1px solid rgba(255,84,112,.4);background:rgba(255,84,112,.08);font-size:12px">
+    <b style="color:#ff5470">⚠ ${noMrp.length} ${cat.toLowerCase()} SKU(s) sold with no MRP in the DSR</b> (${fI(noMrp.reduce((s,r)=>s+r.noMrpRev,0))} of sales left out of margin):
+    ${noMrp.slice(0,12).map(r=>`${_mgnH(r.brand)} ${r.size?r.size+'ml':''} <span style="color:var(--mu2)">(${_mgnH(r.outlet)})</span>`).join(' · ')}${noMrp.length>12?' …':''}. Add the MRP in Inventory to include them.</div>`:'';
+
+  host.innerHTML=`
+    <div class="card" style="margin-bottom:14px">
+      <div class="card-h"><span class="card-t">📐 Beer &amp; Whisky Margin vs MRP</span><span class="card-b">cost = bottles sold × outlet DSR MRP</span></div>
+      <div style="display:flex;flex-wrap:wrap;gap:6px;align-items:center"><span style="font-size:10.5px;color:var(--mu2);font-weight:700;margin-right:2px">OUTLET:</span>${outletChips}</div>
+      <div style="display:flex;flex-wrap:wrap;gap:6px;align-items:center;margin-top:8px"><span style="font-size:10.5px;color:var(--mu2);font-weight:700;margin-right:2px">MONTHS:</span>${monthChips}</div>
+      <div style="font-size:11px;color:var(--mu2);margin-top:8px">Margin % = (sales − bottles × MRP) ÷ sales. Pegs count as part-bottles and packages/combos split their price across the bottles inside, the same way Inventory deducts them${periodNote}.</div>
+    </div>
+    ${kpis}${outletTable}${bandTable}${warn}
+    <div class="card" style="margin-bottom:16px">
+      <div class="card-h" style="flex-wrap:wrap;gap:8px"><span class="card-t">📋 ${cat==='BEER'?'🍺 Beer':'🥃 Whisky'} SKUs · ${_mgnOutlet==='ALL'?'All outlets':_mgnH((OUTLETS.find(o=>o.id===_mgnOutlet)||{}).name||'')}</span>
+        <span style="display:flex;gap:6px;align-items:center"><input id="mgnSearch" class="date-inp" placeholder="Search brand…" value="${_mgnH(_mgnSearch)}" oninput="_mgnSearch=this.value;_mgnRenderSkus()" style="font-size:12px;padding:6px 10px;border-radius:8px;width:170px">
+        <button onclick="_mgnExport()" style="background:var(--sf2);border:1px solid var(--bd);color:var(--text);padding:6px 10px;border-radius:7px;font-family:inherit;font-size:11px;font-weight:700;cursor:pointer;">⬇ Excel</button></span></div>
+      <div id="mgnSkuTbl"></div>
+    </div>`;
+  _mgnRenderSkus();
+}
+function _mgnSkuRows(){
+  const q=_mgnSearch.trim().toUpperCase();
+  return (_mgnLast||[]).filter(r=>r.cat===_mgnCat&&(_mgnOutlet==='ALL'||r.oid===_mgnOutlet)&&(!q||r.brand.includes(q)))
+    .sort((a,b)=>{const k=_mgnSort; const va=a[k]==null?-Infinity:a[k], vb=b[k]==null?-Infinity:b[k];
+      return typeof va==='string'?_mgnSortDir*va.localeCompare(vb):_mgnSortDir*(va-vb);});
+}
+function _mgnRenderSkus(){
+  const el=document.getElementById('mgnSkuTbl'); if(!el) return;
+  const rows=_mgnSkuRows(), showOutlet=_mgnOutlet==='ALL';
+  const th=(k,l,r)=>`<th style="cursor:pointer;${r?'text-align:right':''}" onclick="_mgnSetSort('${k}')">${l}${_mgnSort===k?(_mgnSortDir<0?' ▼':' ▲'):''}</th>`;
+  el.innerHTML=`<div style="overflow-x:auto;max-height:560px;overflow-y:auto"><table class="tbl" style="font-size:11.5px"><thead><tr>
+    ${th('brand','Brand')}${th('size','Size',1)}${showOutlet?th('outlet','Outlet'):''}${th('mrp','MRP',1)}${th('bottles','Bottles',1)}${th('asp','Sold ₹/btl',1)}
+    ${_mgnCat==='WHISKY'?th('pegPct','Peg %',1):''}${th('rev','Sales',1)}${th('cost','Cost (MRP)',1)}${th('gp','GP',1)}${th('margin','Margin',1)}${th('markup','× MRP',1)}</tr></thead>
+    <tbody>${rows.map(r=>`<tr>
+      <td><b>${_mgnH(r.brand)}</b>${r.pkgRev>0?` <span style="font-size:9.5px;color:var(--a3)" title="${fF(r.pkgRev)} came from packages/combos">📦</span>`:''}</td>
+      <td class="num">${r.size?r.size+'ml':'—'}</td>
+      ${showOutlet?`<td style="font-size:11px;color:${r.color||'inherit'}">${_mgnH(r.outlet)}</td>`:''}
+      <td class="num">${r.mrp>0?fF(r.mrp)+(r.mrpVaried?' <span title="MRP changed during the period — cost uses each month\'s MRP" style="color:#ffb020">*</span>':''):'<span style="color:#ff5470;font-size:10px">no MRP</span>'}</td>
+      <td class="num">${r.bottles<10&&r.bottles%1?r.bottles.toFixed(2):fN(r.bottles)}</td>
+      <td class="num">${fF(r.asp)}</td>
+      ${_mgnCat==='WHISKY'?`<td class="num">${r.pegPct.toFixed(0)}%</td>`:''}
+      <td class="num"><b>${fI(r.rev)}</b></td>
+      <td class="num">${r.cost>0?fI(r.cost):'—'}</td>
+      <td class="num">${r.cost>0?fI(r.gp):'—'}</td>
+      <td class="num">${_mgnPct(r.margin)}</td>
+      <td class="num">${r.markup?r.markup.toFixed(2)+'×':'—'}</td></tr>`).join('')||`<tr><td colspan="12" class="empty">No matching SKUs</td></tr>`}</tbody></table></div>
+    <div style="font-size:10px;color:var(--mu2);margin-top:6px">${rows.length} SKU(s). Sold ₹/btl = sales ÷ bottles (pegs add up to bottle equivalents). × MRP = sales ÷ cost.</div>`;
+}
+function _mgnSetOutlet(id){ _mgnOutlet=id; buildMarginPage(); }
+function _mgnSetCat(c){ _mgnCat=c; buildMarginPage(); }
+function _mgnSetSort(k){ if(_mgnSort===k) _mgnSortDir*=-1; else { _mgnSort=k; _mgnSortDir=(k==='brand'||k==='outlet')?1:-1; } _mgnRenderSkus(); }
+function _mgnSetMonths(n){ const all=_allSalesMonths(); _mgnMonthSel=(n==='ALL'||!all.length)?null:new Set(all.slice(-n)); buildMarginPage(); }
+function _mgnToggleMonth(m){
+  const all=_allSalesMonths();
+  if(!_mgnMonthSel){ _mgnMonthSel=new Set([m]); }
+  else if(_mgnMonthSel.has(m)){ _mgnMonthSel.delete(m); if(!_mgnMonthSel.size) _mgnMonthSel=null; }
+  else { _mgnMonthSel.add(m); if(_mgnMonthSel.size===all.length) _mgnMonthSel=null; }
+  buildMarginPage();
+}
+function _mgnExport(){
+  if(typeof XLSX==='undefined'){ toast('Excel library not loaded','warn'); return; }
+  const rows=[['Outlet','Category','Brand','Size ml','MRP','Bottles','Sold Rs/btl','Peg %','Sales','Costed Sales','Cost (MRP)','GP','Margin %','x MRP']];
+  (_mgnLast||[]).filter(r=>_mgnOutlet==='ALL'||r.oid===_mgnOutlet).sort((a,b)=>a.outlet.localeCompare(b.outlet)||a.cat.localeCompare(b.cat)||b.rev-a.rev)
+    .forEach(r=>rows.push([r.outlet,r.cat,r.brand,r.size||'',r.mrp||'',+r.bottles.toFixed(2),Math.round(r.asp),+r.pegPct.toFixed(1),Math.round(r.rev),Math.round(r.costedRev),Math.round(r.cost),Math.round(r.gp),r.margin==null?'':+r.margin.toFixed(1),r.markup?+r.markup.toFixed(2):'']));
+  const wb=XLSX.utils.book_new(); XLSX.utils.book_append_sheet(wb,XLSX.utils.aoa_to_sheet(rows),'MRP Margin');
+  XLSX.writeFile(wb,'Beer_Whisky_Margin_'+(_mgnOutlet==='ALL'?'All':_mgnOutlet)+'_'+new Date().toISOString().slice(0,10)+'.xlsx');
+}
+
 // ── PACKAGE ANALYTICS PAGE ───────────────────────────────────────────────
 function buildPackageAnalyticsPage(scope){
   if(scope) _pkgScope=scope;
@@ -5269,6 +5518,7 @@ function showPage(p,btn){
   if(p==='outletmgr'&&typeof renderOutletManager==='function') renderOutletManager();
   if(p==='ai'&&typeof aiInit==='function') aiInit();
   if(p==='brandsales'&&typeof buildBrandSalesPage==='function') buildBrandSalesPage();
+  if(p==='margin'&&typeof buildMarginPage==='function') buildMarginPage();
   if(p==='packages'&&typeof buildPackageAnalyticsPage==='function') buildPackageAnalyticsPage();
   if(p==='segments'&&typeof buildSegmentPage==='function') buildSegmentPage();
   // Display pages that read the live date filter / outlet selector — rebuild on
